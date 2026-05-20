@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.title}}</title>
+  <link rel="stylesheet" href="/static/css/dev_api_test.css">
+</head>
+<body>
+
+  <!-- Sidebar: Request History -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h2>DM API Tester</h2>
+      <span class="gf-badge">GoFrame v2</span>
+    </div>
+    <div class="history-list">
+      <div class="history-title">Request History</div>
+      <div id="history-list">
+        <!-- Rendered dynamically by JS -->
+        <div class="history-empty">No recent requests</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Area -->
+  <main class="main-content">
+    
+    <!-- Top Navigation Bar -->
+    <header class="navbar">
+      <div class="nav-title">Dream Master Web API Test Tool (Development Environment Only)</div>
+      <span class="gf-badge" style="background: rgba(99, 102, 241, 0.15); color: #818cf8; border-color: rgba(99, 102, 241, 0.2);">Developer Sandbox</span>
+    </header>
+
+    <!-- Workspace Grid -->
+    <div class="workspace-grid">
+      
+      <!-- Left Panel: Request Builder -->
+      <section class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Request Builder</span>
+        </div>
+        
+        <div class="panel-body">
+          <!-- API Preset Selector -->
+          <div style="margin-bottom: 10px;">
+            <select id="api-preset-select" class="kv-input" style="width: 100%; font-size: 0.85rem; padding: 6px 8px;">
+              <option value="">-- Select API Endpoint --</option>
+            </select>
+          </div>
+
+          <!-- URL and Method Selection bar -->
+          <div class="url-bar">
+            <select id="method-select" class="method-select">
+              <option value="GET" selected>GET</option>
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+              <option value="DELETE">DELETE</option>
+              <option value="PATCH">PATCH</option>
+              <option value="HEAD">HEAD</option>
+              <option value="OPTIONS">OPTIONS</option>
+            </select>
+            <input type="text" id="url-input" class="url-input" placeholder="Enter request URL (e.g. /api/v1/user/info or 127.0.0.1:8001/api.json)">
+            <button id="btn-send" class="btn-send">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+              Send
+            </button>
+          </div>
+
+          <!-- Request tabs -->
+          <div class="tabs-container">
+            <div class="tab active" data-target="tab-params">Query Params</div>
+            <div class="tab" data-target="tab-headers">Headers</div>
+            <div class="tab" data-target="tab-body">Body</div>
+            <div class="tab" data-target="tab-auth">Auth Preset</div>
+          </div>
+
+          <!-- Tab Pane: Params -->
+          <div id="tab-params" class="tab-pane active">
+            <div id="query-params-container">
+              <!-- Dynamically populated rows -->
+            </div>
+            <button id="btn-add-param" class="btn-add">+ Add Parameter</button>
+          </div>
+
+          <!-- Tab Pane: Headers -->
+          <div id="tab-headers" class="tab-pane">
+            <div id="headers-container">
+              <!-- Dynamically populated rows -->
+            </div>
+            <button id="btn-add-header" class="btn-add">+ Add Header</button>
+          </div>
+
+          <!-- Tab Pane: Request Body -->
+          <div id="tab-body" class="tab-pane">
+            <textarea id="body-textarea" class="textarea-body" placeholder='// JSON Request Body&#10;{&#10;  "key": "value"&#10;}'></textarea>
+            <div class="body-tools">
+              <button id="btn-format-json" class="btn-small">Beautify JSON</button>
+            </div>
+          </div>
+
+          <!-- Tab Pane: Authentication presets -->
+          <div id="tab-auth" class="tab-pane">
+            <div class="auth-preset-bar">
+              <div class="auth-preset-title">Fast Bearer Authorization Preset</div>
+              <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.4;">
+                Checking this box will automatically inject the JWT Authorization token into all outgoing request headers.
+              </p>
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                <input type="checkbox" id="auth-preset-check" style="cursor: pointer; width: 16px; height: 16px;">
+                <label for="auth-preset-check" style="font-size: 0.85rem; font-weight: 500; cursor: pointer; user-select: none;">Enable JWT Bearer Token Injection</label>
+              </div>
+              <input type="text" id="auth-token-input" class="kv-input" style="width: 100%; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;" placeholder="Enter Bearer Token (JWT)">
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- Right Panel: Response Viewer -->
+      <section class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Response Viewer</span>
+          <div class="resp-info" id="resp-info" style="display: none;">
+            <span id="response-status" class="status-badge">PENDING</span>
+            <span id="response-time" class="time-badge">0 ms</span>
+          </div>
+        </div>
+
+        <div class="panel-body" style="position: relative;">
+          <!-- Default welcome placeholder -->
+          <div id="response-placeholder" class="welcome-placeholder">
+            <div class="welcome-icon">⚡</div>
+            <h3>Ready to Test API</h3>
+            <p style="font-size: 0.85rem; max-width: 280px; line-height: 1.4;">
+              Enter a URL, method parameters, and hit the Send button to test your GoFrame APIs.
+            </p>
+          </div>
+
+          <!-- HTTP Response View (Hidden initially) -->
+          <div id="response-content" style="display: none; height: 100%;">
+            <div class="tabs-container">
+              <div class="tab active" data-target="tab-resp-body">Response Body</div>
+              <div class="tab" data-target="tab-resp-headers">Response Headers</div>
+            </div>
+
+            <!-- Tab: Response Body -->
+            <div id="tab-resp-body" class="tab-pane active" style="height: calc(100% - 40px);">
+              <pre id="response-body-pre" class="pre-container"></pre>
+            </div>
+
+            <!-- Tab: Response Headers -->
+            <div id="tab-resp-headers" class="tab-pane">
+              <div class="pre-container" style="padding: 0;">
+                <table id="response-headers-table" class="headers-table">
+                  <thead>
+                    <tr>
+                      <th>Header Name</th>
+                      <th>Header Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <!-- Populated dynamically -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- WebSocket Console View (Hidden initially) -->
+          <div id="ws-console" style="display: none; height: 100%; flex-direction: column;">
+            <div class="ws-status-bar">
+              <span id="ws-status-dot" class="ws-status-dot"></span>
+              <span id="ws-status-text" class="ws-status-text">Disconnected</span>
+              <button id="btn-ws-close" class="btn-small btn-ws-close" style="display: none;">Close Connection</button>
+            </div>
+            <div id="ws-messages" class="ws-messages">
+              <!-- Messages appended dynamically -->
+            </div>
+            <div class="ws-input-bar">
+              <textarea id="ws-message-input" class="ws-msg-textarea" placeholder='Type message (auto-wraps to JSON) or enter raw JSON, e.g. {"type":"message","dreamContent":"hello"}'></textarea>
+              <button id="btn-ws-send" class="btn-small btn-ws-send" disabled>Send</button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+      
+    </div>
+  </main>
+
+  <script src="/static/js/dev_api_test.js"></script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+package cmd
+
+import (
+	"context"
+	"dm-server/internal/config"
+	"dm-server/internal/controller/devtool"
+	"dm-server/internal/controller/dream"
+	"dm-server/internal/router"
+	"dm-server/internal/utility/limiter"
+
+	"github.com/gogf/gf/v2/frame/g"
+	"github.com/gogf/gf/v2/net/ghttp"
+	"github.com/gogf/gf/v2/os/gcmd"
+)
+
+var (
+	Main = gcmd.Command{
+		Name:  "main",
+		Usage: "main",
+		Brief: "start http server",
+		Func: func(ctx context.Context, parser *gcmd.Parser) (err error) {
+			// Get config from env
+			config.RewriteConfigFromEnv()
+
+			s := g.Server()
+
+			// Static resource directory mapping for dev testing tool
+			s.AddStaticPath("/static", "resource/public")
+
+			// Rate limiter initialization
+			_ = limiter.Init(ctx)
+
+			router := router.NewServerRouter("/api")
+
+			// WS must be bound separately, cannot bind in group
+			// s.BindHandler("/chat/ws", func(r *ghttp.Request) {
+			// 	ctx := middleware.AuthWS(r)
+			// 	dream.NewV1().ChatWebSocket(ctx, nil)
+			// })
+
+			// Register Dev API Test Page & Proxy (Bypass auth middleware)
+			s.Group("/dev", func(group *ghttp.RouterGroup) {
+				devCtrl := &devtool.Controller{}
+				group.GET("/api-test", devCtrl.Index)
+				group.POST("/api-test/proxy", devCtrl.Proxy)
+			})
+
+			s.Group("/", func(group *ghttp.RouterGroup) {
+				router.Register()(group)
+				group.Bind(dream.NewV1())
+			})
+			s.Run()
+			return nil
+		},
+	}
+)

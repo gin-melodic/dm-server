@@ -1,0 +1,104 @@
+# https://goframe.org/docs/web/server-config-file-template
+server:
+  address:   ":8001"
+  logPath: "./logs/"
+  logStdout: true
+  openapiPath: "/api.json"
+  swaggerPath: "/swagger"
+  serverAgent: "Dream Master HTTP Server"
+  errorStack:       true
+  errorLogEnabled:  true
+  errorLogPattern:  "error.{Ymd}.log"
+  accessLogEnabled: true
+  accessLogPattern: "access.{Ymd}.log"
+
+logger:
+  level : "info"
+  path: "./logs/"
+  file: "DM_{Y-m-d}.log"
+  timeFormat:      "2006-01-02T15:04:05.000"
+  rotateExpire:     14
+  stdout: true
+  ctxKeys: ["userId", "openId"]
+
+# wechat miniprog config
+wechat:
+  appid: "111"
+  secret: "111"
+
+# JWT Auth
+jwt:
+  secret: "111" # used to sign the key, must be modified
+  expire: 7200 # Token has a valid period, in seconds, here is 2 hours
+
+database:
+  debug: false
+  logger:
+    path: "./logs/sql"
+    level:   "info"
+    stdout:  true
+  charset: "utf8mb4"
+  default:
+    link: "mysql:{DB_USER:-root}:{DB_PASSWORD:-12345678}@tcp({DB_HOST:-127.0.0.1}:{DB_PORT:-3306})/{DB_NAME:-test}?charset=utf8mb4&parseTime=true&loc=Local"
+
+
+# knowledge base
+knowledge:
+  base_url: "http://{KNOWLEDGE_HOST}:{KNOWLEDGE_PORT}}"
+  timeout: 300
+
+concurrency:
+  # Global max running
+  max_running: 10
+  # Acquire timeout (seconds)
+  acquire_timeout_sec: 1
+  # User config
+  user:
+    # Max analysis count per user in time window
+    max_analysis_count: 10
+    # Time window (hours)
+    analysis_time_window_hours: 1
+
+# prompt config
+prompts:
+  # dream analysis prompt
+  dream_analysis: |
+    你是一个梦境分析师，能够帮助用户解析他们的梦境。请根据用户提供的梦境内容，给出深入的分析和解释。
+    需要考虑到梦境中的各种元素、情绪和象征意义，并结合心理学知识给出合理的解读。
+    回答应该包括以下几个方面：
+    1. 梦境整体寓意
+    2. 关键元素分析
+    3. 可能反映的内心状态
+    4. 建议和启示
+
+
+
+# ai service config
+# available values: ollama, openrouter, lmstudio
+ai_service: "openrouter"
+
+# ollama config
+ollama:
+  # Ollama API URL
+  base_url: "http://127.0.0.1:11434"
+  # model
+  model: "qwq:32b"
+  # request timeout(seconds)
+  timeout: 300
+
+# LMStudio config
+lmstudio:
+  base_url: "http://127.0.0.1:1234/v1"
+  model: "qwen3.6-27b-ud"
+  timeout: 300
+
+# OpenRouter config
+openrouter:
+  # OpenRouter API URL
+  base_url: "https://openrouter.ai/api/v1"
+  # model
+  model: "qwen/qwen3-235b-a22b:free"
+  # API Key
+  api_key: "sk-xxxx"
+  # request timeout(seconds)
+  timeout: 300

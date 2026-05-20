@@ -1,0 +1,22 @@
+services:
+  # MySQL 数据库服务
+  mysql:
+    image: mysql:8.0
+    container_name: dream-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ssjwd^DW2238WD
+      MYSQL_DATABASE: dream_db
+      MYSQL_USER: dream_user
+      MYSQL_PASSWORD: 1a^cMnYk5jqb
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # init sql files
+      - ./resource/database/0-create-tables.sql:/docker-entrypoint-initdb.d/0-create-tables.sql
+    command: --default-authentication-plugin=mysql_native_password
+    ports:
+      - "3306:3306"
+
+volumes:
+  mysql_data:
+    driver: local
