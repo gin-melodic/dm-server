@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // TestConfig holds all configurations for integration and stability tests

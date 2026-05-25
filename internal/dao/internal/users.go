@@ -21,30 +21,34 @@ type UsersDao struct {
 
 // UsersColumns defines and stores column names for the table users.
 type UsersColumns struct {
-	Id        string // User ID
-	Openid    string // WeChat openid, globally unique
-	Unionid   string // WeChat unionid, nullable
-	Nickname  string // User nickname
-	AvatarUrl string // Avatar URL
-	Mobile    string // Mobile number
-	Email     string // Email address
-	CreatedAt string // Created at
-	UpdatedAt string // Updated at
-	DeletedAt string // Deleted at, NULL means not deleted
+	Id           string // User ID
+	Openid       string // WeChat openid, nullable for non-wechat users
+	Unionid      string // WeChat unionid, nullable
+	Nickname     string // User nickname
+	AvatarUrl    string // Avatar URL
+	Mobile       string // Mobile number
+	Email        string // Email address
+	CreatedAt    string // Created at
+	UpdatedAt    string // Updated at
+	DeletedAt    string // Deleted at, NULL means not deleted
+	SupabaseUid  string // Supabase Auth user UUID (JWT sub)
+	AuthProvider string // Auth provider: wechat | email | ...
 }
 
 // usersColumns holds the columns for the table users.
 var usersColumns = UsersColumns{
-	Id:        "id",
-	Openid:    "openid",
-	Unionid:   "unionid",
-	Nickname:  "nickname",
-	AvatarUrl: "avatar_url",
-	Mobile:    "mobile",
-	Email:     "email",
-	CreatedAt: "created_at",
-	UpdatedAt: "updated_at",
-	DeletedAt: "deleted_at",
+	Id:           "id",
+	Openid:       "openid",
+	Unionid:      "unionid",
+	Nickname:     "nickname",
+	AvatarUrl:    "avatar_url",
+	Mobile:       "mobile",
+	Email:        "email",
+	CreatedAt:    "created_at",
+	UpdatedAt:    "updated_at",
+	DeletedAt:    "deleted_at",
+	SupabaseUid:  "supabase_uid",
+	AuthProvider: "auth_provider",
 }
 
 // NewUsersDao creates and returns a new DAO object for table data access.

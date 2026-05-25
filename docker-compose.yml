@@ -13,6 +13,7 @@ services:
       - mysql_data:/var/lib/mysql
       # init sql files
       - ./resource/database/0-create-tables.sql:/docker-entrypoint-initdb.d/0-create-tables.sql
+      - ./resource/database/1-supabase-support.sql:/docker-entrypoint-initdb.d/1-supabase-support.sql
     command: --default-authentication-plugin=mysql_native_password
     ports:
       - "3306:3306"

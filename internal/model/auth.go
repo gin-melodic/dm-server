@@ -1,6 +1,6 @@
 package model
 
-import "github.com/golang-jwt/jwt/v4"
+import "github.com/golang-jwt/jwt/v5"
 
 type WechatUserInfo struct {
 	Openid    string `json:"openid"`
@@ -11,7 +11,9 @@ type WechatUserInfo struct {
 
 // AuthClaims JWT user info
 type AuthClaims struct {
-	ID     uint64 `json:"id"`
-	OpenID string `json:"openid"`
+	ID           uint64 `json:"id"`
+	OpenID       string `json:"openid"`
+	SupabaseUID  string `json:"supabase_uid"`
+	AuthProvider string `json:"auth_provider"`
 	jwt.RegisteredClaims
 }

@@ -31,6 +31,13 @@ jwt:
   secret: "111" # used to sign the key, must be modified
   expire: 7200 # Token has a valid period, in seconds, here is 2 hours
 
+# Supabase Auth config
+supabase:
+  # Supabase project URL (e.g., https://abc.supabase.co)
+  project_url: "https://abc.supabase.co"
+  # JWT secret is found in: Supabase Dashboard → Settings → API → JWT Secret
+  jwtSecret: "your-supabase-jwt-secret"
+
 database:
   debug: false
   logger:

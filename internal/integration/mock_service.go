@@ -15,19 +15,19 @@ import (
 	"dm-server/internal/service"
 
 	"github.com/gogf/gf/v2/errors/gerror"
-	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // MockService implements service.IAuth, service.IDream, and service.IHistory
 type MockService struct {
-	mu            sync.RWMutex
-	users         map[uint64]*v1User.UserInfo
-	dreams        map[uint64]*v1History.DreamSummary
-	dreamResults  map[uint64]string
-	nextDreamID   uint64
-	nextUserID    uint64
-	config        TestConfig
-	shouldFail    bool // flag to simulate service level errors
+	mu           sync.RWMutex
+	users        map[uint64]*v1User.UserInfo
+	dreams       map[uint64]*v1History.DreamSummary
+	dreamResults map[uint64]string
+	nextDreamID  uint64
+	nextUserID   uint64
+	config       TestConfig
+	shouldFail   bool // flag to simulate service level errors
 }
 
 // NewMockService creates a self-contained MockService
@@ -111,6 +111,44 @@ func (m *MockService) WechatLogin(ctx context.Context, req *v1User.WechatAuthReq
 	return &v1User.WechatAuthRes{
 		Token:    token,
 		OpenId:   openid,
+		UserInfo: userInfo,
+	}, nil
+}
+
+func (m *MockService) EmailLogin(ctx context.Context, req *v1User.EmailAuthReq) (*v1User.EmailAuthRes, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.shouldFail {
+		return nil, gerror.New("Mock Supabase Authentication Unavailable")
+	}
+
+	if req.AccessToken == "" {
+		return nil, gerror.New("Access token cannot be empty")
+	}
+
+	userID := m.nextUserID
+	m.nextUserID++
+
+	email := fmt.Sprintf("user_%d@example.com", userID)
+	supabaseUID := fmt.Sprintf("supabase_uid_%s", req.AccessToken)
+
+	userInfo := &v1User.UserInfo{
+		Id:       userID,
+		OpenId:   supabaseUID,
+		Nickname: fmt.Sprintf("Email用户_%d", userID),
+		Avatar:   "https://example.com/default-avatar.png",
+		Email:    email,
+	}
+	m.users[userID] = userInfo
+
+	token, err := GenerateTestToken(userID, supabaseUID, m.config.JWTSecret)
+	if err != nil {
+		return nil, gerror.Wrap(err, "Mock JWT generation failed")
+	}
+
+	return &v1User.EmailAuthRes{
+		Token:    token,
 		UserInfo: userInfo,
 	}, nil
 }
@@ -394,7 +432,7 @@ func (m *MockService) StreamDream(ctx context.Context, content string) (<-chan s
 			if m.config.JitterMax > 0 {
 				sleepTime += time.Duration(rand.Int63n(int64(m.config.JitterMax)))
 			}
-			
+
 			select {
 			case <-ctx.Done():
 				// Instantly cancel if client aborts or closes connection

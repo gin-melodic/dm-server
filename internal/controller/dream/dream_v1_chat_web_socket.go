@@ -31,7 +31,7 @@ var wsUpgrader = websocket.Upgrader{
 	},
 }
 
-func (c *ControllerV1) ChatWs(ctx context.Context, req *v1.ChatWebSocketReq) (res *v1.ChatWebSocketRes, err error) {
+func (c *ControllerV1) ChatWebSocket(ctx context.Context, req *v1.ChatWebSocketReq) (res *v1.ChatWebSocketRes, err error) {
 	r := g.RequestFromCtx(ctx)
 	ctx = middleware.AuthWS(r)
 	return c.chatWebSocket(ctx, req)

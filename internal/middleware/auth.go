@@ -14,8 +14,9 @@ import (
 
 // JWT Authentication Middleware
 func Auth(r *ghttp.Request) {
-	// Skip auth for wechat login
-	if strings.Contains(r.URL.Path, "/wechat/auth") {
+	// Skip auth for public login endpoints
+	path := r.URL.Path
+	if strings.Contains(path, "/wechat/auth") || strings.Contains(path, "/email/auth") {
 		r.Middleware.Next()
 		return
 	}
@@ -25,9 +26,7 @@ func Auth(r *ghttp.Request) {
 	// Passby from dev tool
 	// Only in `development` env
 	if g.Cfg().MustGet(context.Background(), "env", "production").String() == "development" {
-		// HTTP header contains specific key 'X-Dev-Token'
 		if r.Header.Get("X-Dev-Token") == "nowled2_token" {
-			// set token
 			r.SetCtxVar(consts.CtxUserId, uint64(1))
 			r.SetCtxVar(consts.CtxOpenId, "oXXXXXXXXXXXXXXXXXXXXXXX")
 			r.Middleware.Next()
@@ -71,6 +70,7 @@ func Auth(r *ghttp.Request) {
 	// Store user info in context
 	r.SetCtxVar(consts.CtxUserId, claims.ID)
 	r.SetCtxVar(consts.CtxOpenId, claims.OpenID)
+	r.SetCtxVar(consts.CtxSupabaseUid, claims.SupabaseUID)
 
 	r.Middleware.Next()
 }
@@ -90,7 +90,6 @@ func AuthWS(r *ghttp.Request) context.Context {
 
 	// Extract token from query params for WebSocket
 	tokenString := r.GetQuery("token").String()
-	glog.Infof(context.Background(), "AuthWS: token: %s", tokenString)
 	// Need unescape
 	tokenString, err := url.QueryUnescape(tokenString)
 	if err != nil {
@@ -99,7 +98,6 @@ func AuthWS(r *ghttp.Request) context.Context {
 		r.Exit()
 		return nil
 	}
-	glog.Infof(context.Background(), "AuthWS: token(unescape): %s", tokenString)
 	if g.IsEmpty(tokenString) {
 		glog.Warning(r.Context(), "WebSocket connection unauthorized request, token is empty")
 		r.Response.WriteStatus(401)

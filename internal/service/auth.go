@@ -13,8 +13,14 @@ import (
 
 type (
 	IAuth interface {
-		// WechatLogin WeChat login
+		// ─────────────────────────────────────────────────────────
+		// WeChat Login
+		// ─────────────────────────────────────────────────────────
 		WechatLogin(ctx context.Context, req *v1.WechatAuthReq) (*v1.WechatAuthRes, error)
+		// ─────────────────────────────────────────────────────────
+		// Email Login via Supabase token
+		// ─────────────────────────────────────────────────────────
+		EmailLogin(ctx context.Context, req *v1.EmailAuthReq) (*v1.EmailAuthRes, error)
 		// GetUserInfo Get user information
 		// Used after login to get detailed user info
 		GetUserInfo(ctx context.Context, req *v1.GetUserInfoReq) (*v1.GetUserInfoRes, error)
