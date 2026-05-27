@@ -60,15 +60,13 @@ type GetUserSettingsReq struct {
 
 type UserSettings struct {
 	Language             string `json:"language" dc:"Preferred language"`
-	PrivacyMode          string `json:"privacy_mode" dc:"Privacy mode"`
-	DreamReminderEnabled bool   `json:"dream_reminder_enabled" dc:"Whether dream reminders are enabled"`
-	DreamReminderTime    string `json:"dream_reminder_time" dc:"Daily dream reminder time"`
-	StorageMode          string `json:"storage_mode" dc:"Storage mode"`
+	PrivacyMode          string `json:"privacyMode" dc:"Privacy mode"`
+	DreamReminderEnabled *bool  `json:"dreamReminderEnabled" dc:"Whether dream reminders are enabled"`
+	DreamReminderTime    string `json:"dreamReminderTime" dc:"Daily dream reminder time"`
+	StorageMode          string `json:"storageMode" dc:"Storage mode"`
 }
 
-type GetUserSettingsRes struct {
-	UserSettings *UserSettings `json:"user_settings"`
-}
+type GetUserSettingsRes = UserSettings
 
 // Update user settings request
 type UpdateUserSettingsReq struct {
@@ -77,9 +75,7 @@ type UpdateUserSettingsReq struct {
 	// TODO: Persist current user settings.
 }
 
-type UpdateUserSettingsRes struct {
-	UserSettings *UserSettings `json:"user_settings"`
-}
+type UpdateUserSettingsRes = UserSettings
 
 // Get user psyche profile request
 type GetPsycheProfileReq struct {
@@ -88,13 +84,19 @@ type GetPsycheProfileReq struct {
 }
 
 type PsycheProfile struct {
-	IntegrationScore       float64 `json:"integration_score" dc:"Profile integration score"`
-	IntegrationLevel       string  `json:"integration_level" dc:"Profile integration level"`
-	IntegrationDescription string  `json:"integration_description" dc:"Profile integration description"`
-	DominantArchetype      string  `json:"dominant_archetype" dc:"Dominant archetype"`
-	UpdatedAt              string  `json:"updated_at" dc:"Last update time"`
+	IntegrationScore       float64                `json:"integrationScore" dc:"Profile integration score"`
+	IntegrationLevel       string                 `json:"integrationLevel" dc:"Profile integration level"`
+	IntegrationDescription string                 `json:"integrationDescription" dc:"Profile integration description"`
+	Archetypes             []ArchetypeProfileItem `json:"archetypes" dc:"Archetype profile"`
+	DominantArchetype      string                 `json:"dominantArchetype" dc:"Dominant archetype"`
+	UpdatedAt              string                 `json:"updatedAt" dc:"Last update time"`
 }
 
-type GetPsycheProfileRes struct {
-	PsycheProfile *PsycheProfile `json:"psyche_profile"`
+type ArchetypeProfileItem struct {
+	Type        string  `json:"type"`
+	Name        string  `json:"name"`
+	Score       float64 `json:"score"`
+	Description string  `json:"description"`
 }
+
+type GetPsycheProfileRes = PsycheProfile

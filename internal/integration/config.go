@@ -24,7 +24,7 @@ type TestConfig struct {
 func LoadConfig() TestConfig {
 	cfg := TestConfig{
 		BaseURL:        getEnv("TEST_HTTP_URL", "http://localhost:8000/api"),
-		WSURL:          getEnv("TEST_WS_URL", "ws://localhost:8000/chat/ws"),
+		WSURL:          getEnv("TEST_WS_URL", "ws://localhost:8000/api/v1/chat/ws"),
 		JWTSecret:      getEnv("TEST_JWT_SECRET", "f1805dd9597735822a397c0af13b45bccf00e9ec24fb7356d26abbbed51fef5d"),
 		Concurrency:    getEnvInt("TEST_CONCURRENCY", 10),
 		Duration:       time.Duration(getEnvInt("TEST_DURATION_SEC", 10)) * time.Second,

@@ -43,12 +43,12 @@ Server starts on `http://localhost:8001` by default. 🎉
 
 | Endpoint | Description |
 |----------|-------------|
-| `/api/wechat/auth` | WeChat Mini Program login |
-| `/api/user/info` | Get or update user profile |
+| `/api/v1/wechat/auth` | WeChat Mini Program login |
+| `/api/v1/user/info` | Get or update user profile |
 | `/api/v1/dream/list` | Paginated dream history |
 | `/api/v1/dream/delete` | Soft-delete a dream record |
 | `/api/v1/dream/analyze/result` | Retrieve analysis result |
-| `/api/chat/ws` | WebSocket for real-time dream analysis |
+| `/api/v1/chat/ws` | WebSocket for real-time dream analysis |
 
 Dev tools are available at `/dev/api-test` and Swagger UI at `/swagger`. 🔧
 

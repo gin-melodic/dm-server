@@ -116,11 +116,11 @@ func sendRequest(method, path string, body interface{}, token string) (int, *GoF
 	return resp.StatusCode, &gfResp, nil
 }
 
-// TestWechatAuth tests /api/wechat/auth
+// TestWechatAuth tests /api/v1/wechat/auth
 func TestWechatAuth(t *testing.T) {
 	// Correct scenario
 	body := g.Map{"code": "auth_code_123"}
-	status, resp, err := sendRequest(http.MethodPost, "/wechat/auth", body, "")
+	status, resp, err := sendRequest(http.MethodPost, "/v1/wechat/auth", body, "")
 	if err != nil {
 		t.Fatalf("WechatAuth request failed: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestWechatAuth(t *testing.T) {
 
 	// Boundary Scenario: empty code parameter
 	emptyBody := g.Map{"code": ""}
-	status, resp, err = sendRequest(http.MethodPost, "/wechat/auth", emptyBody, "")
+	status, resp, err = sendRequest(http.MethodPost, "/v1/wechat/auth", emptyBody, "")
 	if err != nil {
 		t.Fatalf("WechatAuth empty request failed: %v", err)
 	}
@@ -149,12 +149,12 @@ func TestWechatAuth(t *testing.T) {
 	}
 }
 
-// TestGetUserInfo tests /api/user/info GET
+// TestGetUserInfo tests /api/v1/user/info GET
 func TestGetUserInfo(t *testing.T) {
 	token, _ := GenerateTestToken(1, "test_openid_1", testConfig.JWTSecret)
 
 	// Correct Scenario: authenticated request
-	status, resp, err := sendRequest(http.MethodGet, "/user/info", nil, token)
+	status, resp, err := sendRequest(http.MethodGet, "/v1/user/info", nil, token)
 	if err != nil {
 		t.Fatalf("GetUserInfo request failed: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestGetUserInfo(t *testing.T) {
 	}
 
 	// Boundary Scenario: Access without token (401 Unauthorized)
-	status, resp, err = sendRequest(http.MethodGet, "/user/info", nil, "")
+	status, resp, err = sendRequest(http.MethodGet, "/v1/user/info", nil, "")
 	if err != nil {
 		t.Fatalf("GetUserInfo request without token failed: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestGetUserInfo(t *testing.T) {
 	}
 
 	// Boundary Scenario: Access with invalid token format
-	status, resp, err = sendRequest(http.MethodGet, "/user/info", nil, "invalid-token-string")
+	status, resp, err = sendRequest(http.MethodGet, "/v1/user/info", nil, "invalid-token-string")
 	if err != nil {
 		t.Fatalf("GetUserInfo request with invalid token failed: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestGetUserInfo(t *testing.T) {
 	}
 }
 
-// TestUpdateUserInfo tests /api/user/info PUT
+// TestUpdateUserInfo tests /api/v1/user/info PUT
 func TestUpdateUserInfo(t *testing.T) {
 	token, _ := GenerateTestToken(1, "test_openid_1", testConfig.JWTSecret)
 
@@ -190,7 +190,7 @@ func TestUpdateUserInfo(t *testing.T) {
 		"nickname":   "SuperDreamer",
 		"avatar_url": "https://example.com/new-avatar.png",
 	}
-	status, resp, err := sendRequest(http.MethodPut, "/user/info", body, token)
+	status, resp, err := sendRequest(http.MethodPut, "/v1/user/info", body, token)
 	if err != nil {
 		t.Fatalf("UpdateUserInfo request failed: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestUpdateUserInfo(t *testing.T) {
 	}
 
 	// Boundary Scenario: Update with empty token (401)
-	status, _, err = sendRequest(http.MethodPut, "/user/info", body, "")
+	status, _, err = sendRequest(http.MethodPut, "/v1/user/info", body, "")
 	if err != nil {
 		t.Fatalf("UpdateUserInfo unauthorized request failed: %v", err)
 	}

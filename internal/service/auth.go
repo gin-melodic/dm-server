@@ -26,6 +26,9 @@ type (
 		GetUserInfo(ctx context.Context, req *v1.GetUserInfoReq) (*v1.GetUserInfoRes, error)
 		// UpdateUserInfo Update user information
 		UpdateUserInfo(ctx context.Context, req *v1.UpdateUserInfoReq) (*v1.UpdateUserInfoRes, error)
+		GetUserSettings(ctx context.Context, req *v1.GetUserSettingsReq) (*v1.GetUserSettingsRes, error)
+		UpdateUserSettings(ctx context.Context, req *v1.UpdateUserSettingsReq) (*v1.UpdateUserSettingsRes, error)
+		GetPsycheProfile(ctx context.Context, req *v1.GetPsycheProfileReq) (*v1.GetPsycheProfileRes, error)
 		// VerifyJWT Verify JWT token
 		VerifyJWT(ctx context.Context, tokenString string) (*model.AuthClaims, error)
 	}

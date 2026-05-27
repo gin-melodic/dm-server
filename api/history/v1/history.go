@@ -26,15 +26,16 @@ type FetchDreamListRes struct {
 }
 
 type DreamRecord struct {
-	Id             uint64   `json:"id"`
-	Title          string   `json:"title"`
-	Content        string   `json:"content"`
-	Interpretation string   `json:"interpretation"`
-	Emotion        string   `json:"emotion"`
-	Keywords       []string `json:"keywords"`
-	IsFavorite     bool     `json:"is_favorite"`
-	CreatedAt      string   `json:"created_at"`
-	UpdatedAt      string   `json:"updated_at"`
+	Id              uint64   `json:"id"`
+	Title           string   `json:"title"`
+	Content         string   `json:"content"`
+	Interpretation  string   `json:"interpretation"`
+	Emotion         string   `json:"emotion"`
+	Keywords        []string `json:"keywords"`
+	ConfidenceScore float64  `json:"confidenceScore"`
+	IsFavorite      bool     `json:"isFavorite"`
+	CreatedAt       string   `json:"createdAt"`
+	UpdatedAt       string   `json:"updatedAt"`
 }
 
 // Get dream detail by id
@@ -44,9 +45,7 @@ type GetDreamReq struct {
 	// TODO: Return one dream record by id.
 }
 
-type GetDreamRes struct {
-	Dream *DreamRecord `json:"dream"`
-}
+type GetDreamRes = DreamRecord
 
 // Update dream by id
 type UpdateDreamReq struct {
@@ -55,13 +54,11 @@ type UpdateDreamReq struct {
 	Title      string `json:"title" dc:"Dream title"`
 	Content    string `json:"content" dc:"Dream content"`
 	Emotion    string `json:"emotion" dc:"Dream emotion"`
-	IsFavorite *bool  `json:"is_favorite" dc:"Whether this dream is marked as favorite"`
+	IsFavorite *bool  `json:"isFavorite" dc:"Whether this dream is marked as favorite"`
 	// TODO: Update dream metadata and content.
 }
 
-type UpdateDreamRes struct {
-	Dream *DreamRecord `json:"dream"`
-}
+type UpdateDreamRes = DreamRecord
 
 // Delete dream by id
 type DeleteDreamReq struct {
@@ -92,9 +89,25 @@ type CreateDreamAnalysisReq struct {
 	// TODO: Analyze dream content and persist the dream plus analysis session.
 }
 
+type DreamAnalysisResult struct {
+	Summary         string   `json:"summary"`
+	Interpretation  string   `json:"interpretation"`
+	Keywords        []string `json:"keywords"`
+	ConfidenceScore float64  `json:"confidenceScore"`
+	Locale          string   `json:"locale"`
+}
+
+type DreamAnalysisStep struct {
+	Key         string `json:"key"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
+}
+
 type CreateDreamAnalysisRes struct {
-	Dream  *DreamRecord `json:"dream"`
-	Result string       `json:"result"`
+	Dream    *DreamRecord         `json:"dream"`
+	Analysis *DreamAnalysisResult `json:"analysis"`
+	Steps    []DreamAnalysisStep  `json:"steps"`
 }
 
 // Set dream favorite status
@@ -105,9 +118,7 @@ type SetDreamFavoriteReq struct {
 	// TODO: Set a dream record's favorite status.
 }
 
-type SetDreamFavoriteRes struct {
-	Dream *DreamRecord `json:"dream"`
-}
+type SetDreamFavoriteRes = DreamRecord
 
 // Get dream home data
 type GetDreamHomeReq struct {
@@ -122,15 +133,20 @@ type DreamRecommendation struct {
 }
 
 type DreamHome struct {
-	TotalDreams       int                  `json:"total_dreams"`
-	CurrentStreakDays int                  `json:"current_streak_days"`
+	TotalDreams       int                  `json:"totalDreams"`
+	CurrentStreakDays int                  `json:"currentStreakDays"`
 	Recommendation    *DreamRecommendation `json:"recommendation"`
-	RecentDreams      []DreamRecord        `json:"recent_dreams"`
+	EmotionWaves      []EmotionWavePoint   `json:"emotionWaves"`
+	RecentDreams      []DreamRecord        `json:"recentDreams"`
 }
 
-type GetDreamHomeRes struct {
-	Home *DreamHome `json:"home"`
+type EmotionWavePoint struct {
+	Date    string `json:"date"`
+	Emotion string `json:"emotion"`
+	Count   int    `json:"count"`
 }
+
+type GetDreamHomeRes = DreamHome
 
 // Get today's dream recommendation
 type GetTodayDreamRecommendationReq struct {
@@ -138,6 +154,4 @@ type GetTodayDreamRecommendationReq struct {
 	// TODO: Return today's dream recommendation.
 }
 
-type GetTodayDreamRecommendationRes struct {
-	Recommendation *DreamRecommendation `json:"recommendation"`
-}
+type GetTodayDreamRecommendationRes = DreamRecommendation

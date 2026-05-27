@@ -24,6 +24,7 @@ type MockService struct {
 	users        map[uint64]*v1User.UserInfo
 	dreams       map[uint64]*v1History.DreamSummary
 	dreamResults map[uint64]string
+	settings     map[uint64]*v1User.UserSettings
 	nextDreamID  uint64
 	nextUserID   uint64
 	config       TestConfig
@@ -36,6 +37,7 @@ func NewMockService(cfg TestConfig) *MockService {
 		users:        make(map[uint64]*v1User.UserInfo),
 		dreams:       make(map[uint64]*v1History.DreamSummary),
 		dreamResults: make(map[uint64]string),
+		settings:     make(map[uint64]*v1User.UserSettings),
 		nextDreamID:  100,
 		nextUserID:   1,
 		config:       cfg,
@@ -244,6 +246,80 @@ func (m *MockService) UpdateUserInfo(ctx context.Context, req *v1User.UpdateUser
 	}, nil
 }
 
+func (m *MockService) GetUserSettings(ctx context.Context, req *v1User.GetUserSettingsReq) (*v1User.GetUserSettingsRes, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	userID, err := mockUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	settings := m.settings[userID]
+	if settings == nil {
+		enabled := false
+		settings = &v1User.UserSettings{
+			Language:             "zh-CN",
+			PrivacyMode:          "private",
+			DreamReminderEnabled: &enabled,
+			StorageMode:          "local_cache",
+		}
+		m.settings[userID] = settings
+	}
+	res := v1User.GetUserSettingsRes(*settings)
+	return &res, nil
+}
+
+func (m *MockService) UpdateUserSettings(ctx context.Context, req *v1User.UpdateUserSettingsReq) (*v1User.UpdateUserSettingsRes, error) {
+	current, err := m.GetUserSettings(ctx, &v1User.GetUserSettingsReq{})
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	userID, err := mockUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	settings := v1User.UserSettings(*current)
+	if req.Language != "" {
+		settings.Language = req.Language
+	}
+	if req.PrivacyMode != "" {
+		settings.PrivacyMode = req.PrivacyMode
+	}
+	if req.DreamReminderEnabled != nil {
+		settings.DreamReminderEnabled = req.DreamReminderEnabled
+	}
+	if req.DreamReminderTime != "" {
+		settings.DreamReminderTime = req.DreamReminderTime
+	}
+	if req.StorageMode != "" {
+		settings.StorageMode = req.StorageMode
+	}
+	m.settings[userID] = &settings
+	res := v1User.UpdateUserSettingsRes(settings)
+	return &res, nil
+}
+
+func (m *MockService) GetPsycheProfile(ctx context.Context, req *v1User.GetPsycheProfileReq) (*v1User.GetPsycheProfileRes, error) {
+	profile := v1User.GetPsycheProfileRes{
+		IntegrationScore:       62,
+		IntegrationLevel:       "moderate",
+		IntegrationDescription: "Your dream journal shows emerging symbolic continuity.",
+		Archetypes: []v1User.ArchetypeProfileItem{
+			{Type: "self", Name: "Self", Score: 62, Description: "Wholeness and inner alignment"},
+			{Type: "persona", Name: "Persona", Score: 48, Description: "Social identity and roles"},
+			{Type: "shadow", Name: "Shadow", Score: 42, Description: "Unintegrated emotions"},
+			{Type: "anima", Name: "Anima", Score: 38, Description: "Inner symbolic imagination"},
+			{Type: "sage", Name: "Sage", Score: 44, Description: "Insight and meaning-making"},
+		},
+		DominantArchetype: "self",
+		UpdatedAt:         time.Now().Format("2006-01-02 15:04:05"),
+	}
+	return &profile, nil
+}
+
 func (m *MockService) VerifyJWT(ctx context.Context, tokenString string) (*model.AuthClaims, error) {
 	// Directly verify token string locally
 	claims, err := service.Auth().(*MockService).verifyJWTLocal(tokenString)
@@ -378,6 +454,112 @@ func (m *MockService) GetDreamAnalyzeResult(ctx context.Context, req *v1History.
 	}, nil
 }
 
+func (m *MockService) GetDream(ctx context.Context, req *v1History.GetDreamReq) (*v1History.GetDreamRes, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	record, err := m.mockDreamRecord(req.Id)
+	if err != nil {
+		return nil, err
+	}
+	res := v1History.GetDreamRes(*record)
+	return &res, nil
+}
+
+func (m *MockService) UpdateDream(ctx context.Context, req *v1History.UpdateDreamReq) (*v1History.UpdateDreamRes, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	dream, exists := m.dreams[req.Id]
+	if !exists {
+		return nil, gerror.New("Dream not found")
+	}
+	if req.Title != "" {
+		dream.Title = req.Title
+	}
+	if req.Content != "" {
+		dream.Summary = req.Content
+	}
+	record, err := m.mockDreamRecord(req.Id)
+	if err != nil {
+		return nil, err
+	}
+	res := v1History.UpdateDreamRes(*record)
+	return &res, nil
+}
+
+func (m *MockService) CreateDreamAnalysis(ctx context.Context, req *v1History.CreateDreamAnalysisReq) (*v1History.CreateDreamAnalysisRes, error) {
+	ch, err := m.StreamDream(ctx, req.Content)
+	if err != nil {
+		return nil, err
+	}
+	var builder strings.Builder
+	for piece := range ch {
+		builder.WriteString(piece)
+	}
+	id := m.nextDreamID - 1
+	record, err := m.mockDreamRecord(id)
+	if err != nil {
+		return nil, err
+	}
+	record.Content = req.Content
+	record.Interpretation = builder.String()
+	record.Emotion = req.Emotion
+	return &v1History.CreateDreamAnalysisRes{
+		Dream: record,
+		Analysis: &v1History.DreamAnalysisResult{
+			Summary:         record.Title,
+			Interpretation:  builder.String(),
+			Keywords:        []string{},
+			ConfidenceScore: record.ConfidenceScore,
+			Locale:          req.Locale,
+		},
+		Steps: []v1History.DreamAnalysisStep{
+			{Key: "record", Title: "Record dream", Description: "Dream content saved", Status: "completed"},
+			{Key: "analyze", Title: "Analyze symbols", Description: "Dream interpretation generated", Status: "completed"},
+		},
+	}, nil
+}
+
+func (m *MockService) SetDreamFavorite(ctx context.Context, req *v1History.SetDreamFavoriteReq) (*v1History.SetDreamFavoriteRes, error) {
+	record, err := m.mockDreamRecord(req.Id)
+	if err != nil {
+		return nil, err
+	}
+	record.IsFavorite = req.IsFavorite
+	res := v1History.SetDreamFavoriteRes(*record)
+	return &res, nil
+}
+
+func (m *MockService) GetDreamHome(ctx context.Context, req *v1History.GetDreamHomeReq) (*v1History.GetDreamHomeRes, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	recent := make([]v1History.DreamRecord, 0, len(m.dreams))
+	for id := range m.dreams {
+		record, _ := m.mockDreamRecord(id)
+		recent = append(recent, *record)
+	}
+	home := v1History.GetDreamHomeRes{
+		TotalDreams:       len(recent),
+		CurrentStreakDays: len(recent),
+		RecentDreams:      recent,
+		EmotionWaves:      []v1History.EmotionWavePoint{},
+	}
+	if len(recent) > 0 {
+		home.Recommendation = &v1History.DreamRecommendation{Dream: &recent[0], Score: 0.86, Tier: "standard"}
+	}
+	return &home, nil
+}
+
+func (m *MockService) GetTodayDreamRecommendation(ctx context.Context, req *v1History.GetTodayDreamRecommendationReq) (*v1History.GetTodayDreamRecommendationRes, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for id := range m.dreams {
+		record, _ := m.mockDreamRecord(id)
+		res := v1History.GetTodayDreamRecommendationRes{Dream: record, Score: 0.86, Tier: "standard"}
+		return &res, nil
+	}
+	return nil, gerror.New("Dream not found")
+}
+
 // ==========================================
 // service.IDream Implementation
 // ==========================================
@@ -444,4 +626,43 @@ func (m *MockService) StreamDream(ctx context.Context, content string) (<-chan s
 	}()
 
 	return ch, nil
+}
+
+func (m *MockService) mockDreamRecord(id uint64) (*v1History.DreamRecord, error) {
+	dream, exists := m.dreams[id]
+	if !exists {
+		return nil, gerror.New("Dream not found")
+	}
+	return &v1History.DreamRecord{
+		Id:              dream.Id,
+		Title:           dream.Title,
+		Content:         dream.Summary,
+		Interpretation:  m.dreamResults[id],
+		Emotion:         "neutral",
+		Keywords:        []string{},
+		ConfidenceScore: 0.86,
+		IsFavorite:      false,
+		CreatedAt:       dream.CreateTime,
+		UpdatedAt:       dream.CreateTime,
+	}, nil
+}
+
+func mockUserID(ctx context.Context) (uint64, error) {
+	userIDVal := ctx.Value(consts.CtxUserId)
+	if userIDVal == nil {
+		userIDVal = ctx.Value("userId")
+	}
+	if userIDVal == nil {
+		return 0, gerror.New("User not logged in (context user ID is empty)")
+	}
+	switch v := userIDVal.(type) {
+	case uint64:
+		return v, nil
+	case float64:
+		return uint64(v), nil
+	case int:
+		return uint64(v), nil
+	default:
+		return 0, gerror.New("Invalid Context User ID type")
+	}
 }

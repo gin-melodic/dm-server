@@ -5,17 +5,17 @@ const API_PRESETS = [
     group: '用户管理',
     endpoints: [
       {
-        label: 'GET /api/user/info — 获取用户信息',
+        label: 'GET /api/v1/user/info — 获取用户信息',
         method: 'GET',
-        url: '/api/user/info',
+        url: '/api/v1/user/info',
         params: [],
         headers: [],
         body: ''
       },
       {
-        label: 'PUT /api/user/info — 更新用户信息',
+        label: 'PUT /api/v1/user/info — 更新用户信息',
         method: 'PUT',
-        url: '/api/user/info',
+        url: '/api/v1/user/info',
         params: [],
         headers: [],
         body: JSON.stringify({
@@ -32,9 +32,9 @@ const API_PRESETS = [
     group: '用户认证',
     endpoints: [
       {
-        label: 'POST /api/wechat/auth — 微信小程序授权登录',
+        label: 'POST /api/v1/wechat/auth — 微信小程序授权登录',
         method: 'POST',
-        url: '/api/wechat/auth',
+        url: '/api/v1/wechat/auth',
         params: [],
         headers: [],
         body: JSON.stringify({
@@ -87,9 +87,9 @@ const API_PRESETS = [
     group: 'Chat',
     endpoints: [
       {
-        label: 'GET /chat/ws — WebSocket聊天连接',
+        label: 'GET /api/v1/chat/ws — WebSocket聊天连接',
         method: 'GET',
-        url: '/chat/ws',
+        url: '/api/v1/chat/ws',
         params: [],
         headers: [],
         body: ''

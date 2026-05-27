@@ -13,10 +13,16 @@ import (
 type (
 	IHistory interface {
 		FetchDreamList(ctx context.Context, req *v1.FetchDreamListReq) (*v1.FetchDreamListRes, error)
+		GetDream(ctx context.Context, req *v1.GetDreamReq) (*v1.GetDreamRes, error)
+		UpdateDream(ctx context.Context, req *v1.UpdateDreamReq) (*v1.UpdateDreamRes, error)
 		// DeleteDream Delete a dream record
 		DeleteDream(ctx context.Context, req *v1.DeleteDreamReq) (*v1.DeleteDreamRes, error)
+		CreateDreamAnalysis(ctx context.Context, req *v1.CreateDreamAnalysisReq) (*v1.CreateDreamAnalysisRes, error)
 		// GetDreamAnalyzeResult Get dream analysis result by dream ID
 		GetDreamAnalyzeResult(ctx context.Context, req *v1.GetDreamAnalyzeResultReq) (*v1.GetDreamAnalyzeResultRes, error)
+		SetDreamFavorite(ctx context.Context, req *v1.SetDreamFavoriteReq) (*v1.SetDreamFavoriteRes, error)
+		GetDreamHome(ctx context.Context, req *v1.GetDreamHomeReq) (*v1.GetDreamHomeRes, error)
+		GetTodayDreamRecommendation(ctx context.Context, req *v1.GetTodayDreamRecommendationReq) (*v1.GetTodayDreamRecommendationRes, error)
 	}
 )
 

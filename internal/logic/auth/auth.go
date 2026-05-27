@@ -216,9 +216,179 @@ func (s *sAuth) UpdateUserInfo(ctx context.Context, req *v1.UpdateUserInfoReq) (
 	}, nil
 }
 
+func (s *sAuth) GetUserSettings(ctx context.Context, req *v1.GetUserSettingsReq) (*v1.GetUserSettingsRes, error) {
+	userID, err := getAuthContextUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	settings, err := loadUserSettings(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	res := v1.GetUserSettingsRes(*settings)
+	return &res, nil
+}
+
+func (s *sAuth) UpdateUserSettings(ctx context.Context, req *v1.UpdateUserSettingsReq) (*v1.UpdateUserSettingsRes, error) {
+	userID, err := getAuthContextUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	settings, err := loadUserSettings(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if req.Language != "" {
+		settings.Language = req.Language
+	}
+	if req.PrivacyMode != "" {
+		settings.PrivacyMode = req.PrivacyMode
+	}
+	if req.DreamReminderEnabled != nil {
+		settings.DreamReminderEnabled = req.DreamReminderEnabled
+	}
+	if req.DreamReminderTime != "" {
+		settings.DreamReminderTime = req.DreamReminderTime
+	}
+	if req.StorageMode != "" {
+		settings.StorageMode = req.StorageMode
+	}
+	if err := saveUserSettings(ctx, userID, settings); err != nil {
+		return nil, err
+	}
+	res := v1.UpdateUserSettingsRes(*settings)
+	return &res, nil
+}
+
+func (s *sAuth) GetPsycheProfile(ctx context.Context, req *v1.GetPsycheProfileReq) (*v1.GetPsycheProfileRes, error) {
+	userID, err := getAuthContextUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	total, err := g.DB().Model("dreams").
+		Where("user_id = ? AND deleted_at IS NULL", userID).
+		Count()
+	if err != nil {
+		return nil, gerror.Wrap(err, "failed to count dreams")
+	}
+	score := float64(35)
+	level := "low"
+	description := "Keep recording dreams to build a richer psyche profile."
+	if total >= 3 {
+		score = 62
+		level = "moderate"
+		description = "Your recent dreams show emerging symbolic continuity and self-reflection."
+	}
+	if total >= 10 {
+		score = 84
+		level = "high"
+		description = "Your dream journal shows stable integration across recurring themes."
+	}
+	profile := v1.GetPsycheProfileRes{
+		IntegrationScore:       score,
+		IntegrationLevel:       level,
+		IntegrationDescription: description,
+		Archetypes: []v1.ArchetypeProfileItem{
+			{Type: "self", Name: "Self", Score: score, Description: "Wholeness and inner alignment"},
+			{Type: "persona", Name: "Persona", Score: 48, Description: "Social identity and outward roles"},
+			{Type: "shadow", Name: "Shadow", Score: 42, Description: "Unintegrated emotions and avoided themes"},
+			{Type: "anima", Name: "Anima", Score: 38, Description: "Inner feeling and symbolic imagination"},
+			{Type: "sage", Name: "Sage", Score: 44, Description: "Guidance, insight, and meaning-making"},
+		},
+		DominantArchetype: "self",
+		UpdatedAt:         gtime.Now().Format("Y-m-d H:i:s"),
+	}
+	return &profile, nil
+}
+
 // ─────────────────────────────────────────────────────────
 // Internal helpers
 // ─────────────────────────────────────────────────────────
+
+func getAuthContextUserID(ctx context.Context) (uint64, error) {
+	userId := ctx.Value(consts.CtxUserId)
+	if userId == nil {
+		return 0, gerror.New("User not logged in")
+	}
+	userIdUint64, ok := userId.(uint64)
+	if !ok || userIdUint64 == 0 {
+		return 0, gerror.New("Invalid user ID type")
+	}
+	return userIdUint64, nil
+}
+
+func defaultUserSettings() *v1.UserSettings {
+	enabled := false
+	return &v1.UserSettings{
+		Language:             "zh-CN",
+		PrivacyMode:          "private",
+		DreamReminderEnabled: &enabled,
+		DreamReminderTime:    "",
+		StorageMode:          "local_cache",
+	}
+}
+
+func loadUserSettings(ctx context.Context, userID uint64) (*v1.UserSettings, error) {
+	settings := defaultUserSettings()
+	var row struct {
+		Language             string `orm:"language"`
+		PrivacyMode          string `orm:"privacy_mode"`
+		DreamReminderEnabled *bool  `orm:"dream_reminder_enabled"`
+		DreamReminderTime    string `orm:"dream_reminder_time"`
+		StorageMode          string `orm:"storage_mode"`
+	}
+	err := g.DB().Model("user_settings").Where("user_id", userID).Scan(&row)
+	if err != nil {
+		return nil, gerror.Wrap(err, "failed to load user settings")
+	}
+	if row.Language == "" && row.PrivacyMode == "" && row.StorageMode == "" {
+		return settings, nil
+	}
+	if row.Language != "" {
+		settings.Language = row.Language
+	}
+	if row.PrivacyMode != "" {
+		settings.PrivacyMode = row.PrivacyMode
+	}
+	if row.DreamReminderEnabled != nil {
+		settings.DreamReminderEnabled = row.DreamReminderEnabled
+	}
+	settings.DreamReminderTime = row.DreamReminderTime
+	if row.StorageMode != "" {
+		settings.StorageMode = row.StorageMode
+	}
+	return settings, nil
+}
+
+func saveUserSettings(ctx context.Context, userID uint64, settings *v1.UserSettings) error {
+	enabled := false
+	if settings.DreamReminderEnabled != nil {
+		enabled = *settings.DreamReminderEnabled
+	}
+	data := g.Map{
+		"user_id":                userID,
+		"language":               settings.Language,
+		"privacy_mode":           settings.PrivacyMode,
+		"dream_reminder_enabled": enabled,
+		"dream_reminder_time":    settings.DreamReminderTime,
+		"storage_mode":           settings.StorageMode,
+		"updated_at":             gtime.Now().Format("Y-m-d H:i:s"),
+	}
+	count, err := g.DB().Model("user_settings").Where("user_id", userID).Count()
+	if err != nil {
+		return gerror.Wrap(err, "failed to check user settings")
+	}
+	if count == 0 {
+		_, err = g.DB().Model("user_settings").Data(data).Insert()
+	} else {
+		delete(data, "user_id")
+		_, err = g.DB().Model("user_settings").Where("user_id", userID).Data(data).Update()
+	}
+	if err != nil {
+		return gerror.Wrap(err, "failed to save user settings")
+	}
+	return nil
+}
 
 // findOrCreateUser Find or create user
 func (s *sAuth) findOrCreateWechatUser(ctx context.Context, openid string) (*entity.Users, error) {
