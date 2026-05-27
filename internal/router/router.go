@@ -1,6 +1,7 @@
 package router
 
 import (
+	"dm-server/internal/controller/dream"
 	"dm-server/internal/controller/history"
 	"dm-server/internal/controller/user"
 	"dm-server/internal/middleware"
@@ -25,21 +26,19 @@ func (s *ServerRouter) Register() func(r *ghttp.RouterGroup) {
 
 		// Set prefix using Group method
 		r.Group(s.Prefix, func(prefixGroup *ghttp.RouterGroup) {
+			// WebSocket uses query-token authentication in its controller.
+			prefixGroup.Bind(
+				dream.NewV1(),
+			)
+
 			// Auth globally for /api routes (skips wechat/auth automatically)
 			prefixGroup.Middleware(middleware.Auth)
 
-			// Bind public router
+			// Bind v1 HTTP API routers.
 			prefixGroup.Bind(
 				user.NewV1(),
+				history.NewV1(),
 			)
-
-			// Need auth (middleware.Auth runs above, so no need to repeat it here, but keeping it is harmless)
-			prefixGroup.Group("/v1", func(apiGroup *ghttp.RouterGroup) {
-				// Bind controllers that require authentication
-				apiGroup.Bind(
-					history.NewV1(),
-				)
-			})
 		})
 	}
 }

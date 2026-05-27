@@ -4,7 +4,7 @@ import "github.com/gogf/gf/v2/frame/g"
 
 // Fetch dream list in date range (pagination)
 type FetchDreamListReq struct {
-	g.Meta    `path:"/dream/list" method:"get" summary:"Get the list of dreams" tags:"Dream"`
+	g.Meta    `path:"/v1/dream/list" method:"get" summary:"Get the list of dreams" tags:"Dream"`
 	StartDate string `json:"startDate" form:"startDate" v:"required|date" example:"2022-01-01" dc:"Start date (inclusive)"`
 	EndDate   string `json:"endDate" form:"endDate" v:"required|date" example:"2022-12-31" dc:"End date (inclusive)"`
 	PageSize  int    `json:"pageSize" form:"pageSize" default:"10" example:"10" dc:"Page size"`
@@ -25,9 +25,47 @@ type FetchDreamListRes struct {
 	Total    int64          `json:"total"`
 }
 
+type DreamRecord struct {
+	Id             uint64   `json:"id"`
+	Title          string   `json:"title"`
+	Content        string   `json:"content"`
+	Interpretation string   `json:"interpretation"`
+	Emotion        string   `json:"emotion"`
+	Keywords       []string `json:"keywords"`
+	IsFavorite     bool     `json:"is_favorite"`
+	CreatedAt      string   `json:"created_at"`
+	UpdatedAt      string   `json:"updated_at"`
+}
+
+// Get dream detail by id
+type GetDreamReq struct {
+	g.Meta `path:"/v1/dream/detail" method:"get" summary:"Get Dream Detail" tags:"Dream"`
+	Id     uint64 `json:"id" form:"id" v:"required" example:"1" dc:"The id of the dream"`
+	// TODO: Return one dream record by id.
+}
+
+type GetDreamRes struct {
+	Dream *DreamRecord `json:"dream"`
+}
+
+// Update dream by id
+type UpdateDreamReq struct {
+	g.Meta     `path:"/v1/dream/update" method:"put" summary:"Update Dream" tags:"Dream"`
+	Id         uint64 `json:"id" v:"required" example:"1" dc:"The id of the dream"`
+	Title      string `json:"title" dc:"Dream title"`
+	Content    string `json:"content" dc:"Dream content"`
+	Emotion    string `json:"emotion" dc:"Dream emotion"`
+	IsFavorite *bool  `json:"is_favorite" dc:"Whether this dream is marked as favorite"`
+	// TODO: Update dream metadata and content.
+}
+
+type UpdateDreamRes struct {
+	Dream *DreamRecord `json:"dream"`
+}
+
 // Delete dream by id
 type DeleteDreamReq struct {
-	g.Meta `path:"/dream/delete" method:"post" summary:"Delete the dream" tags:"Dream"`
+	g.Meta `path:"/v1/dream/delete" method:"post" summary:"Delete the dream" tags:"Dream"`
 	Id     uint64 `json:"id" form:"id" v:"required" example:"1" dc:"The id of the dream"`
 }
 
@@ -37,10 +75,69 @@ type DeleteDreamRes struct {
 
 // Get dream anaylyze result by id
 type GetDreamAnalyzeResultReq struct {
-	g.Meta `path:"/dream/analyze/result" method:"get" summary:"Get the analyze result of the dream" tags:"Dream"`
+	g.Meta `path:"/v1/dream/analyze/result" method:"get" summary:"Get the analyze result of the dream" tags:"Dream"`
 	Id     uint64 `json:"id" form:"id" v:"required" example:"1" dc:"The id of the dream"`
 }
 
 type GetDreamAnalyzeResultRes struct {
 	Result string `json:"result"`
+}
+
+// Create dream analysis
+type CreateDreamAnalysisReq struct {
+	g.Meta  `path:"/v1/dream/analyze" method:"post" summary:"Create Dream Analysis" tags:"Dream"`
+	Content string `json:"content" v:"required" dc:"Dream content to analyze"`
+	Emotion string `json:"emotion" dc:"Dream emotion"`
+	Locale  string `json:"locale" dc:"Response locale"`
+	// TODO: Analyze dream content and persist the dream plus analysis session.
+}
+
+type CreateDreamAnalysisRes struct {
+	Dream  *DreamRecord `json:"dream"`
+	Result string       `json:"result"`
+}
+
+// Set dream favorite status
+type SetDreamFavoriteReq struct {
+	g.Meta     `path:"/v1/dream/favorite" method:"patch" summary:"Set Dream Favorite" tags:"Dream"`
+	Id         uint64 `json:"id" v:"required" example:"1" dc:"The id of the dream"`
+	IsFavorite bool   `json:"is_favorite" dc:"Whether this dream is marked as favorite"`
+	// TODO: Set a dream record's favorite status.
+}
+
+type SetDreamFavoriteRes struct {
+	Dream *DreamRecord `json:"dream"`
+}
+
+// Get dream home data
+type GetDreamHomeReq struct {
+	g.Meta `path:"/v1/dream/home" method:"get" summary:"Get Dream Home" tags:"Dream"`
+	// TODO: Return home screen dream stats and recent dreams.
+}
+
+type DreamRecommendation struct {
+	Dream *DreamRecord `json:"dream"`
+	Score float64      `json:"score"`
+	Tier  string       `json:"tier"`
+}
+
+type DreamHome struct {
+	TotalDreams       int                  `json:"total_dreams"`
+	CurrentStreakDays int                  `json:"current_streak_days"`
+	Recommendation    *DreamRecommendation `json:"recommendation"`
+	RecentDreams      []DreamRecord        `json:"recent_dreams"`
+}
+
+type GetDreamHomeRes struct {
+	Home *DreamHome `json:"home"`
+}
+
+// Get today's dream recommendation
+type GetTodayDreamRecommendationReq struct {
+	g.Meta `path:"/v1/dream/recommendation/today" method:"get" summary:"Get Today's Dream Recommendation" tags:"Dream"`
+	// TODO: Return today's dream recommendation.
+}
+
+type GetTodayDreamRecommendationRes struct {
+	Recommendation *DreamRecommendation `json:"recommendation"`
 }

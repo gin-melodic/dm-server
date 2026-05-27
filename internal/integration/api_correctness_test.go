@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"dm-server/internal/controller/dream"
 	"dm-server/internal/router"
 	"dm-server/internal/utility/limiter"
 
@@ -45,7 +44,6 @@ func TestMain(m *testing.M) {
 
 	testServer.Group("/", func(group *ghttp.RouterGroup) {
 		serverRouter.Register()(group)
-		group.Bind(dream.NewV1())
 	})
 
 	testServer.SetPort(8000)
@@ -294,7 +292,7 @@ func TestDeleteDream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeleteDream duplicate request failed: %v", err)
 	}
-	
+
 	var data map[string]interface{}
 	_ = json.Unmarshal(resp.Data, &data)
 	if data["success"] == true {

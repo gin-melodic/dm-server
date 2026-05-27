@@ -4,7 +4,6 @@ import (
 	"context"
 	"dm-server/internal/config"
 	"dm-server/internal/controller/devtool"
-	"dm-server/internal/controller/dream"
 	"dm-server/internal/router"
 	"dm-server/internal/utility/limiter"
 
@@ -32,12 +31,6 @@ var (
 
 			router := router.NewServerRouter("/api")
 
-			// WS must be bound separately, cannot bind in group
-			// s.BindHandler("/chat/ws", func(r *ghttp.Request) {
-			// 	ctx := middleware.AuthWS(r)
-			// 	dream.NewV1().ChatWebSocket(ctx, nil)
-			// })
-
 			// Register Dev API Test Page & Proxy (Bypass auth middleware)
 			s.Group("/dev", func(group *ghttp.RouterGroup) {
 				devCtrl := &devtool.Controller{}
@@ -47,7 +40,6 @@ var (
 
 			s.Group("/", func(group *ghttp.RouterGroup) {
 				router.Register()(group)
-				group.Bind(dream.NewV1())
 			})
 			s.Run()
 			return nil

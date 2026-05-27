@@ -1,0 +1,1504 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "DreamNest API",
+    "version": "0.0.1",
+    "description": "OpenAPI contract aligned with the backend GoFrame API definitions."
+  },
+  "servers": [
+    {
+      "url": "/api",
+      "description": "Backend API base path"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Auth"
+    },
+    {
+      "name": "User"
+    },
+    {
+      "name": "Dream"
+    },
+    {
+      "name": "Chat"
+    }
+  ],
+  "paths": {
+    "/v1/email/auth": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "operationId": "emailAuth",
+        "summary": "Email Login via Supabase Token",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailAuthRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Backend JWT and user information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/GoFrameResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/AuthResponse"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/wechat/auth": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "operationId": "wechatAuth",
+        "summary": "WeChat MiniProgram Authorization Login",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WechatAuthRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Backend JWT, OpenID, and user information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/GoFrameResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/WechatAuthResponse"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/user/info": {
+      "get": {
+        "tags": [
+          "User"
+        ],
+        "operationId": "getUserInfo",
+        "summary": "Get User Info",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current user information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/GoFrameResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/GetUserInfoResponse"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "User"
+        ],
+        "operationId": "updateUserInfo",
+        "summary": "Update User Info",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserInfoRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated user information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/GoFrameResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/GetUserInfoResponse"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/user/settings": {
+      "get": {
+        "tags": [
+          "User"
+        ],
+        "operationId": "getUserSettings",
+        "summary": "Get User Settings",
+        "description": "TODO: Return current user settings.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current user settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/GoFrameResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/GetUserSettingsResponse"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "User"
+        ],
+        "operationId": "updateUserSettings",
+        "summary": "Update User Settings",
+        "description": "TODO: Persist current user settings.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserSettingsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated user settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/GoFrameResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/UpdateUserSettingsResponse"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/user/psyche-profile": {
+      "get": {
+        "tags": [
+          "User"
+        ],
+        "operationId": "getPsycheProfile",
+        "summary": "Get Psyche Profile",
+        "description": "TODO: Return the current user's psyche profile.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Psyche profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/GoFrameResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/GetPsycheProfileResponse"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/dream/list": {
+      "get": {
+        "tags": [
+          "Dream"
+        ],
+        "operationId": "fetchDreamList",
+        "summary": "Get the list of dreams",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "startDate",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dream list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/GoFrameResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/FetchDreamListResponse"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/dream/detail": {
+      "get": {
+        "tags": [
+          "Dream"
+        ],
+        "operationId": "getDream",
+        "summary": "Get Dream Detail",
+        "description": "TODO: Return one dream record by id.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "uint64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dream detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/GoFrameResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/GetDreamResponse"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/dream/update": {
+      "put": {
+        "tags": [
+          "Dream"
+        ],
+        "operationId": "updateDream",
+        "summary": "Update Dream",
+        "description": "TODO: Update dream metadata and content.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDreamRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated dream",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/GoFrameResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/UpdateDreamResponse"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/dream/delete": {
+      "post": {
+        "tags": [
+          "Dream"
+        ],
+        "operationId": "deleteDream",
+        "summary": "Delete the dream",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteDreamRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Dream deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/GoFrameResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/DeleteDreamResponse"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/dream/analyze": {
+      "post": {
+        "tags": [
+          "Dream"
+        ],
+        "operationId": "createDreamAnalysis",
+        "summary": "Create Dream Analysis",
+        "description": "TODO: Analyze dream content and persist the dream plus analysis session.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDreamAnalysisRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Dream analysis",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/GoFrameResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/CreateDreamAnalysisResponse"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/dream/analyze/result": {
+      "get": {
+        "tags": [
+          "Dream"
+        ],
+        "operationId": "getDreamAnalyzeResult",
+        "summary": "Get the analyze result of the dream",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "uint64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dream analysis result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/GoFrameResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/GetDreamAnalyzeResultResponse"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/dream/favorite": {
+      "patch": {
+        "tags": [
+          "Dream"
+        ],
+        "operationId": "setDreamFavorite",
+        "summary": "Set Dream Favorite",
+        "description": "TODO: Set a dream record's favorite status.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDreamFavoriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated dream",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/GoFrameResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SetDreamFavoriteResponse"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/dream/home": {
+      "get": {
+        "tags": [
+          "Dream"
+        ],
+        "operationId": "getDreamHome",
+        "summary": "Get Dream Home",
+        "description": "TODO: Return home screen dream stats and recent dreams.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dream home data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/GoFrameResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/GetDreamHomeResponse"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/dream/recommendation/today": {
+      "get": {
+        "tags": [
+          "Dream"
+        ],
+        "operationId": "getTodayDreamRecommendation",
+        "summary": "Get Today's Dream Recommendation",
+        "description": "TODO: Return today's dream recommendation.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Today's dream recommendation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/GoFrameResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/GetTodayDreamRecommendationResponse"
+                        }
+                      },
+                      "required": [
+                        "data"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/chat/ws": {
+      "get": {
+        "tags": [
+          "Chat"
+        ],
+        "operationId": "chatWebSocket",
+        "summary": "WebSocket chat connection",
+        "description": "This endpoint upgrades to a WebSocket connection. Clients send and receive ChatMessage JSON objects.",
+        "security": [
+          {
+            "queryTokenAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "URL-encoded backend JWT"
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "Switching Protocols"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "queryTokenAuth": {
+        "type": "apiKey",
+        "in": "query",
+        "name": "token"
+      }
+    },
+    "responses": {
+      "ErrorResponse": {
+        "description": "GoFrame error response",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/GoFrameResponse"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "GoFrameResponse": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": true
+        },
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "EmailAuthRequest": {
+        "type": "object",
+        "properties": {
+          "access_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token"
+        ],
+        "additionalProperties": false
+      },
+      "WechatAuthRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "AuthResponse": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "user_info": {
+            "$ref": "#/components/schemas/UserInfo"
+          }
+        },
+        "required": [
+          "token",
+          "user_info"
+        ],
+        "additionalProperties": false
+      },
+      "WechatAuthResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AuthResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "openid": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "openid"
+            ]
+          }
+        ]
+      },
+      "UserInfo": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "openid": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "avatar_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "GetUserInfoResponse": {
+        "type": "object",
+        "properties": {
+          "user_info": {
+            "$ref": "#/components/schemas/UserInfo"
+          }
+        },
+        "required": [
+          "user_info"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateUserInfoRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "openid": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "avatar_url": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SupportedLanguage": {
+        "type": "string",
+        "enum": [
+          "en",
+          "zh-Hant",
+          "zh-Hans"
+        ]
+      },
+      "PrivacyMode": {
+        "type": "string",
+        "enum": [
+          "private",
+          "cloud_sync"
+        ]
+      },
+      "UserSettings": {
+        "type": "object",
+        "properties": {
+          "language": {
+            "$ref": "#/components/schemas/SupportedLanguage"
+          },
+          "privacy_mode": {
+            "$ref": "#/components/schemas/PrivacyMode"
+          },
+          "dream_reminder_enabled": {
+            "type": "boolean"
+          },
+          "dream_reminder_time": {
+            "type": "string"
+          },
+          "storage_mode": {
+            "type": "string",
+            "enum": [
+              "local_cache",
+              "cloud_sync"
+            ]
+          }
+        },
+        "required": [
+          "language",
+          "privacy_mode",
+          "dream_reminder_enabled",
+          "storage_mode"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateUserSettingsRequest": {
+        "$ref": "#/components/schemas/UserSettings"
+      },
+      "GetUserSettingsResponse": {
+        "type": "object",
+        "properties": {
+          "user_settings": {
+            "$ref": "#/components/schemas/UserSettings"
+          }
+        },
+        "required": [
+          "user_settings"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateUserSettingsResponse": {
+        "$ref": "#/components/schemas/GetUserSettingsResponse"
+      },
+      "PsycheProfile": {
+        "type": "object",
+        "properties": {
+          "integration_score": {
+            "type": "number"
+          },
+          "integration_level": {
+            "type": "string"
+          },
+          "integration_description": {
+            "type": "string"
+          },
+          "dominant_archetype": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "integration_score",
+          "integration_level",
+          "integration_description",
+          "dominant_archetype",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      },
+      "GetPsycheProfileResponse": {
+        "type": "object",
+        "properties": {
+          "psyche_profile": {
+            "$ref": "#/components/schemas/PsycheProfile"
+          }
+        },
+        "required": [
+          "psyche_profile"
+        ],
+        "additionalProperties": false
+      },
+      "DreamSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "createTime": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "summary",
+          "createTime"
+        ],
+        "additionalProperties": false
+      },
+      "FetchDreamListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DreamSummary"
+            }
+          },
+          "page": {
+            "type": "integer"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "data",
+          "page",
+          "pageSize",
+          "total"
+        ],
+        "additionalProperties": false
+      },
+      "DreamRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "title": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "interpretation": {
+            "type": "string"
+          },
+          "emotion": {
+            "type": "string"
+          },
+          "is_favorite": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "GetDreamRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "uint64"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "GetDreamResponse": {
+        "type": "object",
+        "properties": {
+          "dream": {
+            "$ref": "#/components/schemas/DreamRecord"
+          }
+        },
+        "required": [
+          "dream"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateDreamRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "title": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "emotion": {
+            "type": "string"
+          },
+          "is_favorite": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateDreamResponse": {
+        "$ref": "#/components/schemas/GetDreamResponse"
+      },
+      "DeleteDreamRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "uint64"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "DeleteDreamResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success"
+        ],
+        "additionalProperties": false
+      },
+      "CreateDreamAnalysisRequest": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "emotion": {
+            "type": "string"
+          },
+          "locale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "CreateDreamAnalysisResponse": {
+        "type": "object",
+        "properties": {
+          "dream": {
+            "$ref": "#/components/schemas/DreamRecord"
+          },
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "dream",
+          "result"
+        ],
+        "additionalProperties": false
+      },
+      "GetDreamAnalyzeResultResponse": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false
+      },
+      "SetDreamFavoriteRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "is_favorite": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "is_favorite"
+        ],
+        "additionalProperties": false
+      },
+      "SetDreamFavoriteResponse": {
+        "$ref": "#/components/schemas/GetDreamResponse"
+      },
+      "DreamRecommendation": {
+        "type": "object",
+        "properties": {
+          "dream": {
+            "$ref": "#/components/schemas/DreamRecord"
+          },
+          "score": {
+            "type": "number"
+          },
+          "tier": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "score",
+          "tier"
+        ],
+        "additionalProperties": false
+      },
+      "DreamHome": {
+        "type": "object",
+        "properties": {
+          "total_dreams": {
+            "type": "integer"
+          },
+          "current_streak_days": {
+            "type": "integer"
+          },
+          "recommendation": {
+            "$ref": "#/components/schemas/DreamRecommendation"
+          },
+          "recent_dreams": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DreamRecord"
+            }
+          }
+        },
+        "required": [
+          "total_dreams",
+          "current_streak_days",
+          "recent_dreams"
+        ],
+        "additionalProperties": false
+      },
+      "GetDreamHomeResponse": {
+        "type": "object",
+        "properties": {
+          "home": {
+            "$ref": "#/components/schemas/DreamHome"
+          }
+        },
+        "required": [
+          "home"
+        ],
+        "additionalProperties": false
+      },
+      "GetTodayDreamRecommendationResponse": {
+        "type": "object",
+        "properties": {
+          "recommendation": {
+            "$ref": "#/components/schemas/DreamRecommendation"
+          }
+        },
+        "required": [
+          "recommendation"
+        ],
+        "additionalProperties": false
+      },
+      "ChatMessage": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "message",
+              "error",
+              "done"
+            ]
+          },
+          "dreamContent": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+}

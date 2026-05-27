@@ -5,7 +5,7 @@ import (
 )
 
 type ChatWebSocketReq struct {
-	g.Meta `path:"/chat/ws" method:"get" tags:"Chat" summary:"WebSocket聊天连接"`
+	g.Meta `path:"/v1/chat/ws" method:"get" tags:"Chat" summary:"WebSocket聊天连接"`
 }
 
 type ChatWebSocketRes struct{}
