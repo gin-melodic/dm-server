@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	v1 "dm-server/api/user/v1"
 	"dm-server/internal/consts"
 	"dm-server/internal/dao"
@@ -9,7 +10,11 @@ import (
 	"dm-server/internal/model/entity"
 	"dm-server/internal/service"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"regexp"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,6 +33,25 @@ var (
 	jwksInstance *keyfunc.JWKS
 	jwksOnce     sync.Once
 )
+
+var (
+	allowedPrivacyModes = map[string]struct{}{
+		"private":    {},
+		"cloud_sync": {},
+	}
+	allowedStorageModes = map[string]struct{}{
+		"local_cache": {},
+		"cloud_sync":  {},
+	}
+)
+
+type psycheDreamRow struct {
+	Id              uint64      `orm:"id"`
+	Tags            string      `orm:"tags"`
+	Emotion         string      `orm:"emotion"`
+	ConfidenceScore float64     `orm:"confidence_score"`
+	CreatedAt       *gtime.Time `orm:"created_at"`
+}
 
 func New() *sAuth {
 	return &sAuth{}
@@ -52,7 +76,7 @@ func init() {
 func (s *sAuth) ensureJWKS(ctx context.Context) error {
 	var initErr error
 	jwksOnce.Do(func() {
-		projectURL := g.Cfg().MustGet(ctx, "supabase.url").String()
+		projectURL := g.Cfg().MustGet(ctx, "supabase.project_url").String()
 		jwksURL := projectURL + "/auth/v1/.well-known/jwks.json"
 		glog.Infof(ctx, "Loading Supabase JWKS from: %s", jwksURL)
 		jwksInstance, initErr = keyfunc.Get(jwksURL, keyfunc.Options{
@@ -239,18 +263,33 @@ func (s *sAuth) UpdateUserSettings(ctx context.Context, req *v1.UpdateUserSettin
 		return nil, err
 	}
 	if req.Language != "" {
+		if !isValidLanguageTag(req.Language) {
+			return nil, gerror.New("invalid language")
+		}
 		settings.Language = req.Language
 	}
 	if req.PrivacyMode != "" {
+		if !isAllowedUserSetting(req.PrivacyMode, allowedPrivacyModes) {
+			return nil, gerror.New("invalid privacy mode")
+		}
 		settings.PrivacyMode = req.PrivacyMode
 	}
 	if req.DreamReminderEnabled != nil {
 		settings.DreamReminderEnabled = req.DreamReminderEnabled
+		if !*req.DreamReminderEnabled {
+			settings.DreamReminderTime = ""
+		}
 	}
 	if req.DreamReminderTime != "" {
+		if !isValidReminderTime(req.DreamReminderTime) {
+			return nil, gerror.New("invalid dream reminder time")
+		}
 		settings.DreamReminderTime = req.DreamReminderTime
 	}
 	if req.StorageMode != "" {
+		if !isAllowedUserSetting(req.StorageMode, allowedStorageModes) {
+			return nil, gerror.New("invalid storage mode")
+		}
 		settings.StorageMode = req.StorageMode
 	}
 	if err := saveUserSettings(ctx, userID, settings); err != nil {
@@ -265,38 +304,24 @@ func (s *sAuth) GetPsycheProfile(ctx context.Context, req *v1.GetPsycheProfileRe
 	if err != nil {
 		return nil, err
 	}
-	total, err := g.DB().Model("dreams").
-		Where("user_id = ? AND deleted_at IS NULL", userID).
-		Count()
+	var dreams []psycheDreamRow
+	err = g.DB().Model("dreams").
+		Fields("id, tags, emotion, confidence_score, created_at").
+		Where("user_id = ? AND deleted_at IS NULL AND status = ?", userID, "completed").
+		OrderDesc("created_at").
+		Scan(&dreams)
 	if err != nil {
-		return nil, gerror.Wrap(err, "failed to count dreams")
+		return nil, gerror.Wrap(err, "failed to query psyche profile dreams")
 	}
-	score := float64(35)
-	level := "low"
-	description := "Keep recording dreams to build a richer psyche profile."
-	if total >= 3 {
-		score = 62
-		level = "moderate"
-		description = "Your recent dreams show emerging symbolic continuity and self-reflection."
-	}
-	if total >= 10 {
-		score = 84
-		level = "high"
-		description = "Your dream journal shows stable integration across recurring themes."
-	}
+	score, level, description := psycheIntegration(len(dreams))
+	archetypes, dominant := psycheArchetypes(dreams, score)
 	profile := v1.GetPsycheProfileRes{
 		IntegrationScore:       score,
 		IntegrationLevel:       level,
 		IntegrationDescription: description,
-		Archetypes: []v1.ArchetypeProfileItem{
-			{Type: "self", Name: "Self", Score: score, Description: "Wholeness and inner alignment"},
-			{Type: "persona", Name: "Persona", Score: 48, Description: "Social identity and outward roles"},
-			{Type: "shadow", Name: "Shadow", Score: 42, Description: "Unintegrated emotions and avoided themes"},
-			{Type: "anima", Name: "Anima", Score: 38, Description: "Inner feeling and symbolic imagination"},
-			{Type: "sage", Name: "Sage", Score: 44, Description: "Guidance, insight, and meaning-making"},
-		},
-		DominantArchetype: "self",
-		UpdatedAt:         gtime.Now().Format("Y-m-d H:i:s"),
+		Archetypes:             archetypes,
+		DominantArchetype:      dominant,
+		UpdatedAt:              gtime.Now().Format("Y-m-d H:i:s"),
 	}
 	return &profile, nil
 }
@@ -339,6 +364,9 @@ func loadUserSettings(ctx context.Context, userID uint64) (*v1.UserSettings, err
 	}
 	err := g.DB().Model("user_settings").Where("user_id", userID).Scan(&row)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return settings, nil
+		}
 		return nil, gerror.Wrap(err, "failed to load user settings")
 	}
 	if row.Language == "" && row.PrivacyMode == "" && row.StorageMode == "" {
@@ -365,29 +393,124 @@ func saveUserSettings(ctx context.Context, userID uint64, settings *v1.UserSetti
 	if settings.DreamReminderEnabled != nil {
 		enabled = *settings.DreamReminderEnabled
 	}
-	data := g.Map{
-		"user_id":                userID,
-		"language":               settings.Language,
-		"privacy_mode":           settings.PrivacyMode,
-		"dream_reminder_enabled": enabled,
-		"dream_reminder_time":    settings.DreamReminderTime,
-		"storage_mode":           settings.StorageMode,
-		"updated_at":             gtime.Now().Format("Y-m-d H:i:s"),
-	}
-	count, err := g.DB().Model("user_settings").Where("user_id", userID).Count()
-	if err != nil {
-		return gerror.Wrap(err, "failed to check user settings")
-	}
-	if count == 0 {
-		_, err = g.DB().Model("user_settings").Data(data).Insert()
-	} else {
-		delete(data, "user_id")
-		_, err = g.DB().Model("user_settings").Where("user_id", userID).Data(data).Update()
-	}
+	_, err := g.DB().Exec(ctx, `
+		INSERT INTO user_settings
+			(user_id, language, privacy_mode, dream_reminder_enabled, dream_reminder_time, storage_mode, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE
+			language = VALUES(language),
+			privacy_mode = VALUES(privacy_mode),
+			dream_reminder_enabled = VALUES(dream_reminder_enabled),
+			dream_reminder_time = VALUES(dream_reminder_time),
+			storage_mode = VALUES(storage_mode),
+			updated_at = VALUES(updated_at)
+	`, userID, settings.Language, settings.PrivacyMode, enabled, settings.DreamReminderTime, settings.StorageMode, gtime.Now().Format("Y-m-d H:i:s"))
 	if err != nil {
 		return gerror.Wrap(err, "failed to save user settings")
 	}
 	return nil
+}
+
+func isAllowedUserSetting(value string, allowed map[string]struct{}) bool {
+	_, ok := allowed[strings.TrimSpace(value)]
+	return ok
+}
+
+func isValidLanguageTag(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	matched, _ := regexp.MatchString(`^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$`, value)
+	return matched
+}
+
+func isValidReminderTime(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return true
+	}
+	matched, _ := regexp.MatchString(`^([01]\d|2[0-3]):[0-5]\d$`, value)
+	return matched
+}
+
+func psycheIntegration(total int) (float64, string, string) {
+	switch {
+	case total == 0:
+		return 20, "low", "Record dreams to begin building a stable psyche profile."
+	case total < 3:
+		return 35 + float64(total*7), "low", "Keep recording dreams to build a richer psyche profile."
+	case total < 10:
+		return 56 + float64(total-3)*4, "moderate", "Your recent dreams show emerging symbolic continuity and self-reflection."
+	default:
+		score := 84 + float64(total-10)
+		if score > 96 {
+			score = 96
+		}
+		return score, "high", "Your dream journal shows stable integration across recurring themes."
+	}
+}
+
+func psycheArchetypes(dreams []psycheDreamRow, integration float64) ([]v1.ArchetypeProfileItem, string) {
+	scores := map[string]float64{
+		"self":    integration,
+		"persona": 42,
+		"shadow":  42,
+		"anima":   38,
+		"sage":    44,
+	}
+	for _, dream := range dreams {
+		emotion := strings.ToLower(strings.TrimSpace(dream.Emotion))
+		switch emotion {
+		case "fear", "angry", "anxious", "sad":
+			scores["shadow"] += 4
+		case "peaceful", "happy":
+			scores["self"] += 2
+		case "confused":
+			scores["sage"] += 2
+		case "excited":
+			scores["persona"] += 2
+		}
+		for _, tag := range strings.Split(strings.ToLower(dream.Tags), ",") {
+			tag = strings.TrimSpace(tag)
+			switch {
+			case strings.Contains(tag, "work") || strings.Contains(tag, "社交") || strings.Contains(tag, "学校"):
+				scores["persona"] += 3
+			case strings.Contains(tag, "fear") || strings.Contains(tag, "dark") || strings.Contains(tag, "阴影"):
+				scores["shadow"] += 3
+			case strings.Contains(tag, "love") || strings.Contains(tag, "family") || strings.Contains(tag, "情感"):
+				scores["anima"] += 3
+			case strings.Contains(tag, "guide") || strings.Contains(tag, "teacher") || strings.Contains(tag, "智慧"):
+				scores["sage"] += 3
+			}
+		}
+	}
+
+	items := []v1.ArchetypeProfileItem{
+		{Type: "self", Name: "Self", Description: "Wholeness and inner alignment"},
+		{Type: "persona", Name: "Persona", Description: "Social identity and outward roles"},
+		{Type: "shadow", Name: "Shadow", Description: "Unintegrated emotions and avoided themes"},
+		{Type: "anima", Name: "Anima", Description: "Inner feeling and symbolic imagination"},
+		{Type: "sage", Name: "Sage", Description: "Guidance, insight, and meaning-making"},
+	}
+	for i := range items {
+		score := scores[items[i].Type]
+		if score > 99 {
+			score = 99
+		}
+		items[i].Score = score
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Score == items[j].Score {
+			return items[i].Type < items[j].Type
+		}
+		return items[i].Score > items[j].Score
+	})
+	dominant := "self"
+	if len(items) > 0 {
+		dominant = items[0].Type
+	}
+	return items, dominant
 }
 
 // findOrCreateUser Find or create user
@@ -415,6 +538,7 @@ func (s *sAuth) findOrCreateWechatUser(ctx context.Context, openid string) (*ent
 
 func (s *sAuth) findOrCreateEmailUser(ctx context.Context, supabaseUID, email string) (*entity.Users, error) {
 	var user *entity.Users
+	glog.Infof(ctx, "Find or create email user: %s, %s", supabaseUID, email)
 	err := dao.Users.Ctx(ctx).
 		Where("supabase_uid", supabaseUID).
 		Where("deleted_at IS NULL").

@@ -12,13 +12,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/glog"
-	"github.com/gogf/gf/v2/os/gtime"
 	"github.com/gogf/gf/v2/text/gregex"
 	"github.com/gogf/gf/v2/text/gstr"
-	"github.com/gogf/gf/v2/util/guid"
 )
 
 // AIServiceSelector Define AI service selector interface
@@ -91,18 +88,6 @@ func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan string
 			return
 		}
 
-		// First, record the dream content
-		dreamId, err := dao.Dreams.Ctx(ctx).Data(g.Map{
-			"user_id":    userid,
-			"content":    content,
-			"dream_date": gtime.Now().Format("Y-m-d"),
-		}).InsertAndGetId()
-		if err != nil {
-			glog.Async(true).Error(ctx, err)
-			ch <- "[error]failed to insert dream"
-			return
-		}
-
 		// TODO: Search for similar dreams to reduce LLM calls
 		// TODO: If similar dreams are found, also simulate streaming output
 
@@ -135,19 +120,6 @@ func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan string
 
 		fullPrompt += prompt.String()
 
-		// Create session record
-		sessionUUID := guid.S()
-		sessionId, err := dao.AnalysisSessions.Ctx(ctx).Data(g.Map{
-			"dream_id":     dreamId,
-			"session_uuid": sessionUUID,
-			"status":       "processing",
-		}).InsertAndGetId()
-		if err != nil {
-			glog.Async(true).Error(ctx, err)
-			ch <- "[error] Create analysis session failed"
-		}
-
-		glog.Async(true).Infof(ctx, "Session created, session_id: %d", sessionId)
 		// 6. Call AI service to analyze dream (select service according to configuration)
 		contentChan, err := s.analyzeDreamStream(ctx, fullPrompt, content)
 		if err != nil {
@@ -162,53 +134,14 @@ func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan string
 		}
 		glog.Async(true).Infof(ctx, "AI_Service analysis started successfully")
 
-		// Summarize LLM output
-		var contentSummery string
-
 		for {
 			select {
 			case <-ctx.Done():
 				// Cancel: Stop consuming LLM output and exit
 				glog.Async(true).Info(ctx, "stream canceled by client")
-				// Update session status to canceled
-				_, _ = dao.AnalysisSessions.Ctx(ctx).Where("id", sessionId).Update(g.Map{
-					"status":   "canceled",
-					"progress": 0,
-				})
 				return
 			case piece, ok := <-contentChan:
 				if !ok {
-					// Normal completion
-					status := "completed"
-					if contentSummery == "" {
-						status = "empty"
-					}
-					title, content := cleanText(contentSummery)
-					err := g.DB().Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
-						// Update dream table
-						_, err := dao.Dreams.Ctx(ctx).Where("id", dreamId).Update(g.Map{
-							"title":  title,
-							"status": status,
-						})
-						if err != nil {
-							return err
-						}
-						// Update analysis_sessions table
-						_, err = dao.AnalysisSessions.Ctx(ctx).Where("id", sessionId).Update(g.Map{
-							"status":         status,
-							"progress":       100,
-							"result_summary": content,
-						})
-						if err != nil {
-							return err
-						}
-						return nil
-					})
-					if err != nil {
-						glog.Async(true).Error(ctx, err)
-						ch <- "[error] Update database failed"
-						return
-					}
 					return
 				}
 				if piece == "" {
@@ -220,7 +153,6 @@ func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan string
 					return
 				}
 				ch <- piece
-				contentSummery += piece
 			}
 		}
 	}()

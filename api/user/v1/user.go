@@ -17,7 +17,7 @@ type WechatAuthRes struct {
 // Email login via Supabase token
 type EmailAuthReq struct {
 	g.Meta      `path:"/v1/email/auth" method:"post" summary:"Email Login via Supabase Token" tags:"user_auth"`
-	AccessToken string `json:"access_token" v:"required#access_token cannot be empty" dc:"Supabase access_token"`
+	AccessToken string `json:"supabase_token" v:"required#supabase_token cannot be empty" dc:"Supabase access_token"`
 }
 
 type EmailAuthRes struct {

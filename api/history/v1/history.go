@@ -114,7 +114,7 @@ type CreateDreamAnalysisRes struct {
 type SetDreamFavoriteReq struct {
 	g.Meta     `path:"/v1/dream/favorite" method:"patch" summary:"Set Dream Favorite" tags:"Dream"`
 	Id         uint64 `json:"id" v:"required" example:"1" dc:"The id of the dream"`
-	IsFavorite bool   `json:"is_favorite" dc:"Whether this dream is marked as favorite"`
+	IsFavorite bool   `json:"isFavorite" dc:"Whether this dream is marked as favorite"`
 	// TODO: Set a dream record's favorite status.
 }
 
