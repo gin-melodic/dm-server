@@ -26,11 +26,12 @@ type EmailAuthRes struct {
 }
 
 type UserInfo struct {
-	Id       uint64 `json:"id"`
-	OpenId   string `json:"openid"`
-	Email    string `json:"email"`
-	Nickname string `json:"nickname"`
-	Avatar   string `json:"avatar_url"`
+	Id       uint64  `json:"id"`
+	OpenId   string  `json:"openid"`
+	Email    string  `json:"email"`
+	Nickname string  `json:"nickname"`
+	Avatar   string  `json:"avatar_url"`
+	Lang     *string `json:"lang"`
 }
 
 // Get User Info Request
@@ -46,6 +47,7 @@ type GetUserInfoRes struct {
 type UpdateUserInfoReq struct {
 	g.Meta `path:"/v1/user/info" method:"put" summary:"Update User Info" tags:"user_management"`
 	UserInfo
+	Language *string `json:"language" dc:"Deprecated. Use lang."`
 }
 
 type UpdateUserInfoRes struct {

@@ -11,7 +11,7 @@ import (
 	"dm-server/internal/consts"
 	"dm-server/internal/service"
 
-	_ "github.com/gogf/gf/contrib/drivers/mysql/v2"
+	_ "github.com/gogf/gf/contrib/drivers/pgsql/v2"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gcfg"
 	"github.com/gogf/gf/v2/util/guid"

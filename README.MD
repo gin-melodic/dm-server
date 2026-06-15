@@ -13,13 +13,13 @@ An AI-powered dream analysis service built for WeChat Mini Program. Describe you
 
 ## 🛠 Tech Stack
 
-Go 1.25 · GoFrame v2 · MySQL 8.0 · WebSocket · JWT
+Go 1.25 · GoFrame v2 · PostgreSQL 18.4 · WebSocket · JWT
 
 ## 🚀 Quick Start
 
-**Prerequisites:** Go 1.25+, MySQL 8.0
+**Prerequisites:** Go 1.25+, PostgreSQL 18.4
 
-1. **Start MySQL with Docker Compose:**
+1. **Start PostgreSQL with Docker Compose:**
    ```bash
    docker-compose up -d
    ```

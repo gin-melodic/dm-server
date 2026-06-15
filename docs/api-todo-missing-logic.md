@@ -150,7 +150,7 @@ Missing logic to supply:
 ## Cross-Cutting Gaps
 
 - Regenerate model/entity files after schema changes. `internal/model/entity/dreams.go` does not currently include `emotion`, `is_favorite`, or `confidence_score`, even though the new API logic uses those fields through custom rows.
-- Confirm that `resource/database/2-dreamnest-api-schema-changes.sql` is applied in all environments before enabling these endpoints.
+- Confirm that `resource/database/0-create-tables.sql` is applied in all environments before enabling these endpoints.
 - Standardize request and response casing between snake_case and camelCase.
 - Add integration tests for the new TODO endpoints beyond the existing list/detail/delete/result coverage.
 - Define a single error contract for validation failures, unauthorized access, missing records, and model-analysis failures.

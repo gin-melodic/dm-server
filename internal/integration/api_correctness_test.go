@@ -127,6 +127,13 @@ func TestWechatAuth(t *testing.T) {
 	if status != http.StatusOK || resp.Code != 0 {
 		t.Errorf("Expected 200, got status: %d, code: %d, msg: %s", status, resp.Code, resp.Message)
 	}
+	var getData map[string]json.RawMessage
+	if err := json.Unmarshal(resp.Data, &getData); err != nil {
+		t.Fatalf("Failed to parse user info response data: %v", err)
+	}
+	if getData["user_info"] == nil {
+		t.Fatalf("Expected user_info in response")
+	}
 
 	// Check token presence in response data
 	var data map[string]interface{}

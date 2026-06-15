@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	v1 "dm-server/api/user/v1"
@@ -150,7 +151,7 @@ func (s *sAuth) EmailLogin(ctx context.Context, req *v1.EmailAuthReq) (*v1.Email
 	}
 	email, _ := supabaseClaims["email"].(string)
 
-	// 2. Find or create local MySQL user
+	// 2. Find or create local application user
 	user, err := s.findOrCreateEmailUser(ctx, supabaseUID, email)
 	if err != nil {
 		return nil, gerror.Wrap(err, "Find or Create User failed")
@@ -211,18 +212,24 @@ func (s *sAuth) UpdateUserInfo(ctx context.Context, req *v1.UpdateUserInfoReq) (
 	}
 	userIdUint64, ok := userId.(uint64)
 	if !ok {
-		return nil, gerror.New("Invalid user ID type")
+		return nil, gerror.Newf("Invalid user ID type, %v", userId)
 	}
-	_, err := dao.Users.Ctx(ctx).Data(g.Map{
-		"nickname":   req.Nickname,
-		"avatar_url": req.Avatar,
-		"updated_at": gtime.Now().FormatTo("2006-01-02 15:04:05"),
-	}).Where("id", userIdUint64).Update()
-	if err != nil {
-		return nil, gerror.Wrap(err, "Failed to update user info")
+	updateData := g.Map{}
+	if requestJSONHasKey(ctx, "nickname") || req.Nickname != "" {
+		updateData["nickname"] = req.Nickname
+	}
+	if requestJSONHasKey(ctx, "avatar_url") || req.Avatar != "" {
+		updateData["avatar_url"] = req.Avatar
+	}
+	if len(updateData) > 0 {
+		updateData["updated_at"] = gtime.Now().FormatTo("2006-01-02 15:04:05")
+		_, err := dao.Users.Ctx(ctx).Data(updateData).Where("id", userIdUint64).Update()
+		if err != nil {
+			return nil, gerror.Wrap(err, "Failed to update user info")
+		}
 	}
 	var user *entity.Users
-	err = dao.Users.Ctx(ctx).Where("id", userIdUint64).Scan(&user)
+	err := dao.Users.Ctx(ctx).Where("id", userIdUint64).Scan(&user)
 	if err != nil {
 		return nil, gerror.Wrap(err, "Database error")
 	}
@@ -330,13 +337,38 @@ func (s *sAuth) GetPsycheProfile(ctx context.Context, req *v1.GetPsycheProfileRe
 // Internal helpers
 // ─────────────────────────────────────────────────────────
 
+func requestJSONHasKey(ctx context.Context, key string) bool {
+	body := requestJSONBody(ctx)
+	if len(body) == 0 {
+		return false
+	}
+	_, ok := body[key]
+	return ok
+}
+
+func requestJSONBody(ctx context.Context) map[string]json.RawMessage {
+	r := g.RequestFromCtx(ctx)
+	if r == nil {
+		return nil
+	}
+	body := r.GetBody()
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil
+	}
+	return payload
+}
+
 func getAuthContextUserID(ctx context.Context) (uint64, error) {
 	userId := ctx.Value(consts.CtxUserId)
 	if userId == nil {
 		return 0, gerror.New("User not logged in")
 	}
 	userIdUint64, ok := userId.(uint64)
-	if !ok || userIdUint64 == 0 {
+	if !ok {
 		return 0, gerror.New("Invalid user ID type")
 	}
 	return userIdUint64, nil
@@ -397,13 +429,13 @@ func saveUserSettings(ctx context.Context, userID uint64, settings *v1.UserSetti
 		INSERT INTO user_settings
 			(user_id, language, privacy_mode, dream_reminder_enabled, dream_reminder_time, storage_mode, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE
-			language = VALUES(language),
-			privacy_mode = VALUES(privacy_mode),
-			dream_reminder_enabled = VALUES(dream_reminder_enabled),
-			dream_reminder_time = VALUES(dream_reminder_time),
-			storage_mode = VALUES(storage_mode),
-			updated_at = VALUES(updated_at)
+		ON CONFLICT (user_id) DO UPDATE SET
+			language = EXCLUDED.language,
+			privacy_mode = EXCLUDED.privacy_mode,
+			dream_reminder_enabled = EXCLUDED.dream_reminder_enabled,
+			dream_reminder_time = EXCLUDED.dream_reminder_time,
+			storage_mode = EXCLUDED.storage_mode,
+			updated_at = EXCLUDED.updated_at
 	`, userID, settings.Language, settings.PrivacyMode, enabled, settings.DreamReminderTime, settings.StorageMode, gtime.Now().Format("Y-m-d H:i:s"))
 	if err != nil {
 		return gerror.Wrap(err, "failed to save user settings")
@@ -527,11 +559,13 @@ func (s *sAuth) findOrCreateWechatUser(ctx context.Context, openid string) (*ent
 		Openid:       openid,
 		AuthProvider: "wechat",
 	}
-	rs, err := dao.Users.Ctx(ctx).Insert(user)
+	lastId, err := dao.Users.Ctx(ctx).Data(g.Map{
+		"openid":        openid,
+		"auth_provider": "wechat",
+	}).InsertAndGetId()
 	if err != nil {
 		return nil, gerror.Wrap(err, "Failed to create user")
 	}
-	lastId, _ := rs.LastInsertId()
 	user.Id = uint64(lastId)
 	return user, nil
 }
@@ -562,11 +596,14 @@ func (s *sAuth) findOrCreateEmailUser(ctx context.Context, supabaseUID, email st
 		Email:        email,
 		AuthProvider: "email",
 	}
-	rs, err := dao.Users.Ctx(ctx).Insert(user)
+	lastId, err := dao.Users.Ctx(ctx).Data(g.Map{
+		"supabase_uid":  supabaseUID,
+		"email":         email,
+		"auth_provider": "email",
+	}).InsertAndGetId()
 	if err != nil {
 		return nil, gerror.Wrap(err, "Failed to create user")
 	}
-	lastId, _ := rs.LastInsertId()
 	user.Id = uint64(lastId)
 	return user, nil
 }

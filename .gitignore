@@ -43,6 +43,8 @@ coverage/
 *.temp
 *.bak
 *.backup
+volume/
+__debug*
 
 # Other
 *.pid

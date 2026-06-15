@@ -128,7 +128,7 @@ func (s *sHistory) FetchDreamList(ctx context.Context, req *v1.FetchDreamListReq
 	}
 
 	// 7) Execute paginated query with field selection
-	dbModel = dbModel.Fields("d.id, d.title, SUBSTRING(d.content,1,120) AS summary, DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS create_time")
+	dbModel = dbModel.Fields("d.id, d.title, SUBSTRING(d.content,1,120) AS summary, TO_CHAR(d.created_at, 'YYYY-MM-DD HH24:MI:SS') AS create_time")
 	var list []v1.DreamSummary
 	err = dbModel.Page(page, pageSize).Scan(&list)
 	if err != nil {
@@ -789,9 +789,9 @@ func (s *sHistory) listEmotionWaves(ctx context.Context, userID uint64, days int
 		Count   int    `orm:"count"`
 	}
 	err := g.DB().Model("dreams").
-		Fields("DATE_FORMAT(dream_date, '%Y-%m-%d') AS date, emotion, COUNT(*) AS count").
+		Fields("TO_CHAR(dream_date, 'YYYY-MM-DD') AS date, emotion, COUNT(*) AS count").
 		Where("user_id = ? AND deleted_at IS NULL AND status = ? AND dream_date >= ?", userID, dreamStatusCompleted, start).
-		Group("DATE_FORMAT(dream_date, '%Y-%m-%d'), emotion").
+		Group("TO_CHAR(dream_date, 'YYYY-MM-DD'), emotion").
 		Order("date ASC").
 		Scan(&rows)
 	if err != nil {
@@ -809,7 +809,7 @@ func (s *sHistory) currentDreamDateStreak(ctx context.Context, userID uint64) (i
 		Date string `orm:"date"`
 	}
 	err := g.DB().Model("dreams").
-		Fields("DISTINCT DATE_FORMAT(dream_date, '%Y-%m-%d') AS date").
+		Fields("DISTINCT TO_CHAR(dream_date, 'YYYY-MM-DD') AS date").
 		Where("user_id = ? AND deleted_at IS NULL AND status = ? AND dream_date <= ?", userID, dreamStatusCompleted, time.Now().Format("2006-01-02")).
 		Order("date DESC").
 		Scan(&rows)

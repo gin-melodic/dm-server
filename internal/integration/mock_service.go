@@ -141,6 +141,7 @@ func (m *MockService) EmailLogin(ctx context.Context, req *v1User.EmailAuthReq) 
 		Nickname: fmt.Sprintf("Email用户_%d", userID),
 		Avatar:   "https://example.com/default-avatar.png",
 		Email:    email,
+		Lang:     nil,
 	}
 	m.users[userID] = userInfo
 
@@ -238,9 +239,12 @@ func (m *MockService) UpdateUserInfo(ctx context.Context, req *v1User.UpdateUser
 		m.users[userID] = user
 	}
 
-	user.Nickname = req.Nickname
-	user.Avatar = req.Avatar
-
+	if req.Nickname != "" {
+		user.Nickname = req.Nickname
+	}
+	if req.Avatar != "" {
+		user.Avatar = req.Avatar
+	}
 	return &v1User.UpdateUserInfoRes{
 		UserInfo: user,
 	}, nil

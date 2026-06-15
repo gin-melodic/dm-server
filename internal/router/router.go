@@ -8,7 +8,7 @@ import (
 
 	"github.com/gogf/gf/v2/net/ghttp"
 
-	_ "github.com/gogf/gf/contrib/drivers/mysql/v2"
+	_ "github.com/gogf/gf/contrib/drivers/pgsql/v2"
 )
 
 type ServerRouter struct {

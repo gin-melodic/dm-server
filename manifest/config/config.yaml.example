@@ -29,14 +29,16 @@ wechat:
 # JWT Auth
 jwt:
   secret: "111" # used to sign the key, must be modified
-  expire: 7200 # Token has a valid period, in seconds, here is 2 hours
+  timeout: 7200 # Token has a valid period, in seconds, here is 2 hours
 
 # Supabase Auth config
 supabase:
   # Supabase project URL (e.g., https://abc.supabase.co)
   project_url: "https://abc.supabase.co"
-  # JWT secret is found in: Supabase Dashboard → Settings → API → JWT Secret
-  jwtSecret: "your-supabase-jwt-secret"
+  # Supabase publishable key (sb_publishable_...), used with the user's access token for RLS reads
+  publishable_key: "your-supabase-publishable-key"
+  # Supabase secret key (sb_secret_...), backend only
+  secret_key: "your-supabase-secret-key"
 
 database:
   debug: false
@@ -44,9 +46,8 @@ database:
     path: "./logs/sql"
     level:   "info"
     stdout:  true
-  charset: "utf8mb4"
   default:
-    link: "mysql:{DB_USER:-root}:{DB_PASSWORD:-12345678}@tcp({DB_HOST:-127.0.0.1}:{DB_PORT:-3306})/{DB_NAME:-test}?charset=utf8mb4&parseTime=true&loc=Local"
+    link: "pgsql:{DB_USER:-dream_user}:{DB_PASSWORD:-1a^cMnYk5jqb}@tcp({DB_HOST:-127.0.0.1}:{DB_PORT:-5432})/{DB_NAME:-dream_db}"
 
 
 # knowledge base
