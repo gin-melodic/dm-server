@@ -13,13 +13,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/MicahParks/keyfunc/v2"
 	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/glog"
@@ -29,11 +29,6 @@ import (
 )
 
 type sAuth struct{}
-
-var (
-	jwksInstance *keyfunc.JWKS
-	jwksOnce     sync.Once
-)
 
 var (
 	allowedPrivacyModes = map[string]struct{}{
@@ -54,54 +49,31 @@ type psycheDreamRow struct {
 	CreatedAt       *gtime.Time `orm:"created_at"`
 }
 
+type supabaseAuthUser struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+}
+
+type supabasePasswordAuthResult struct {
+	AccessToken string            `json:"access_token"`
+	User        *supabaseAuthUser `json:"user"`
+}
+
+type supabaseAuthErrorResponse struct {
+	Error       string      `json:"error"`
+	ErrorCode   string      `json:"error_code"`
+	Message     string      `json:"message"`
+	Msg         string      `json:"msg"`
+	Description string      `json:"error_description"`
+	Code        interface{} `json:"code"`
+}
+
 func New() *sAuth {
 	return &sAuth{}
 }
 
 func init() {
 	service.RegisterAuth(New())
-	// Eagerly warm up JWKS in background
-	go func() {
-		ctx := context.Background()
-		if err := New().ensureJWKS(ctx); err != nil {
-			glog.Warningf(ctx, "JWKS preload failed, will retry on first request: %v", err)
-			// Reset so it retries on next request
-			jwksOnce = sync.Once{}
-		}
-	}()
-}
-
-// ─────────────────────────────────────────────────────────
-// JWKS — Supabase public key fetching
-// ─────────────────────────────────────────────────────────
-func (s *sAuth) ensureJWKS(ctx context.Context) error {
-	var initErr error
-	jwksOnce.Do(func() {
-		projectURL := g.Cfg().MustGet(ctx, "supabase.project_url").String()
-		jwksURL := projectURL + "/auth/v1/.well-known/jwks.json"
-		glog.Infof(ctx, "Loading Supabase JWKS from: %s", jwksURL)
-		jwksInstance, initErr = keyfunc.Get(jwksURL, keyfunc.Options{
-			RefreshInterval:   time.Hour,
-			RefreshRateLimit:  time.Minute * 5,
-			RefreshUnknownKID: true,
-		})
-	})
-	return initErr
-}
-
-func (s *sAuth) verifySupabaseJWT(ctx context.Context, tokenString string) (jwt.MapClaims, error) {
-	if err := s.ensureJWKS(ctx); err != nil {
-		return nil, gerror.Wrap(err, "Failed to load Supabase signing keys")
-	}
-	token, err := jwt.Parse(tokenString, jwksInstance.Keyfunc)
-	if err != nil || !token.Valid {
-		return nil, gerror.New("Invalid or expired Supabase token: " + err.Error())
-	}
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return nil, gerror.New("Cannot parse token claims")
-	}
-	return claims, nil
 }
 
 // ─────────────────────────────────────────────────────────
@@ -136,38 +108,72 @@ func (s *sAuth) WechatLogin(ctx context.Context, req *v1.WechatAuthReq) (*v1.Wec
 }
 
 // ─────────────────────────────────────────────────────────
-// Email Login via Supabase token
+// Email Login via backend-managed Supabase password flow.
 // ─────────────────────────────────────────────────────────
 func (s *sAuth) EmailLogin(ctx context.Context, req *v1.EmailAuthReq) (*v1.EmailAuthRes, error) {
-	// 1. Verify the Supabase access_token using JWKS
-	supabaseClaims, err := s.verifySupabaseJWT(ctx, req.AccessToken)
+	return s.emailPasswordLogin(ctx, req)
+}
+
+func (s *sAuth) emailPasswordLogin(ctx context.Context, req *v1.EmailAuthReq) (*v1.EmailAuthRes, error) {
+	email := strings.TrimSpace(req.Email)
+	password := req.Password
+	if email == "" || password == "" {
+		return nil, gerror.New("email/password is required")
+	}
+	if !isLikelyEmail(email) {
+		return nil, gerror.New("invalid email")
+	}
+	if len(password) < 6 {
+		return nil, gerror.New("password must be at least 6 characters")
+	}
+
+	authResult, err := s.signInWithSupabasePassword(ctx, email, password)
+	authFlow := "signedIn"
 	if err != nil {
-		return nil, gerror.Wrap(err, "Invalid Supabase token")
+		if !isInvalidSupabasePasswordLogin(err) {
+			return nil, err
+		}
+		authResult, err = s.signUpWithSupabasePassword(ctx, email, password)
+		authFlow = "signedUp"
+		if err != nil {
+			if isSupabaseUserAlreadyRegistered(err) {
+				return nil, gerror.New("invalid email or password")
+			}
+			return nil, err
+		}
+	}
+	if strings.TrimSpace(authResult.AccessToken) == "" {
+		return &v1.EmailAuthRes{
+			AuthFlow:                  authFlow,
+			EmailVerificationRequired: true,
+			UserInfo:                  supabaseAuthUserInfo(authResult.User, email),
+		}, nil
+	}
+	if authResult.User == nil || strings.TrimSpace(authResult.User.ID) == "" {
+		return nil, gerror.New("Supabase auth response missing user")
 	}
 
-	supabaseUID, _ := supabaseClaims["sub"].(string)
-	if supabaseUID == "" {
-		return nil, gerror.New("Token missing 'sub' claim")
+	userEmail := email
+	if strings.TrimSpace(authResult.User.Email) != "" {
+		userEmail = strings.TrimSpace(authResult.User.Email)
 	}
-	email, _ := supabaseClaims["email"].(string)
 
-	// 2. Find or create local application user
-	user, err := s.findOrCreateEmailUser(ctx, supabaseUID, email)
+	user, err := s.findOrCreateEmailUser(ctx, authResult.User.ID, userEmail)
 	if err != nil {
 		return nil, gerror.Wrap(err, "Find or Create User failed")
 	}
 
-	// 3. Issue your own server JWT
-	token, err := s.generateServerJWT(ctx, user.Id, supabaseUID, "", "email")
+	token, err := s.generateServerJWT(ctx, user.Id, authResult.User.ID, "", "email")
 	if err != nil {
 		return nil, gerror.Wrap(err, "Failed to generate server JWT")
 	}
 
 	return &v1.EmailAuthRes{
-		Token: token,
+		Token:    token,
+		AuthFlow: authFlow,
 		UserInfo: &v1.UserInfo{
 			Id:    user.Id,
-			Email: email,
+			Email: userEmail,
 		},
 	}, nil
 }
@@ -360,6 +366,127 @@ func requestJSONBody(ctx context.Context) map[string]json.RawMessage {
 		return nil
 	}
 	return payload
+}
+
+func (s *sAuth) signInWithSupabasePassword(ctx context.Context, email, password string) (*supabasePasswordAuthResult, error) {
+	projectURL, apiKey, err := supabaseAuthConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return postSupabasePasswordAuth(ctx, projectURL+"/auth/v1/token?grant_type=password", apiKey, g.Map{
+		"email":    email,
+		"password": password,
+	})
+}
+
+func (s *sAuth) signUpWithSupabasePassword(ctx context.Context, email, password string) (*supabasePasswordAuthResult, error) {
+	projectURL, apiKey, err := supabaseAuthConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return postSupabasePasswordAuth(ctx, projectURL+"/auth/v1/signup", apiKey, g.Map{
+		"email":    email,
+		"password": password,
+	})
+}
+
+func supabaseAuthConfig(ctx context.Context) (string, string, error) {
+	projectURL := strings.TrimRight(g.Cfg().MustGet(ctx, "supabase.project_url").String(), "/")
+	apiKey := strings.TrimSpace(g.Cfg().MustGet(ctx, "supabase.publishable_key").String())
+	if apiKey == "" {
+		apiKey = strings.TrimSpace(g.Cfg().MustGet(ctx, "supabase.secret_key").String())
+	}
+	if projectURL == "" || apiKey == "" {
+		return "", "", gerror.New("Supabase auth is not configured")
+	}
+	return projectURL, apiKey, nil
+}
+
+func postSupabasePasswordAuth(ctx context.Context, url, apiKey string, payload g.Map) (*supabasePasswordAuthResult, error) {
+	requestBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, gerror.Wrap(err, "Failed to encode Supabase auth request")
+	}
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(requestBytes))
+	if err != nil {
+		return nil, gerror.Wrap(err, "Failed to build Supabase auth request")
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("apikey", apiKey)
+	request.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, gerror.Wrap(err, "Failed to request Supabase auth")
+	}
+	defer response.Body.Close()
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, gerror.Wrap(err, "Failed to read Supabase auth response")
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return nil, gerror.New(parseSupabaseAuthError(body, response.StatusCode))
+	}
+
+	var result supabasePasswordAuthResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, gerror.Wrap(err, "Failed to parse Supabase auth response")
+	}
+	return &result, nil
+}
+
+func parseSupabaseAuthError(body []byte, statusCode int) string {
+	var errResp supabaseAuthErrorResponse
+	if err := json.Unmarshal(body, &errResp); err == nil {
+		for _, value := range []string{
+			errResp.ErrorCode,
+			errResp.Message,
+			errResp.Msg,
+			errResp.Description,
+			errResp.Error,
+		} {
+			value = strings.TrimSpace(value)
+			if value != "" {
+				return value
+			}
+		}
+	}
+	return fmt.Sprintf("Supabase auth request failed with status %d", statusCode)
+}
+
+func isInvalidSupabasePasswordLogin(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "invalid login credentials") ||
+		strings.Contains(message, "invalid_credentials")
+}
+
+func isSupabaseUserAlreadyRegistered(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "user already registered") ||
+		strings.Contains(message, "user_already_exists") ||
+		strings.Contains(message, "email_exists")
+}
+
+func supabaseAuthUserInfo(user *supabaseAuthUser, fallbackEmail string) *v1.UserInfo {
+	email := strings.TrimSpace(fallbackEmail)
+	if user != nil && strings.TrimSpace(user.Email) != "" {
+		email = strings.TrimSpace(user.Email)
+	}
+	return &v1.UserInfo{Email: email}
+}
+
+func isLikelyEmail(value string) bool {
+	matched, _ := regexp.MatchString(`^[^@\s]+@[^@\s]+\.[^@\s]+$`, strings.TrimSpace(value))
+	return matched
 }
 
 func getAuthContextUserID(ctx context.Context) (uint64, error) {

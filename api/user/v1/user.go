@@ -14,15 +14,18 @@ type WechatAuthRes struct {
 	UserInfo *UserInfo `json:"user_info" dc:"user info"`
 }
 
-// Email login via Supabase token
+// Email login or signup via password.
 type EmailAuthReq struct {
-	g.Meta      `path:"/v1/email/auth" method:"post" summary:"Email Login via Supabase Token" tags:"user_auth"`
-	AccessToken string `json:"supabase_token" v:"required#supabase_token cannot be empty" dc:"Supabase access_token"`
+	g.Meta   `path:"/v1/email/auth" method:"post" summary:"Email Login or Auto Signup" tags:"user_auth"`
+	Email    string `json:"email" v:"required|email#email cannot be empty|invalid email" dc:"Email address"`
+	Password string `json:"password" v:"required|length:6,128#password cannot be empty|password must be 6-128 characters" dc:"Password"`
 }
 
 type EmailAuthRes struct {
-	Token    string    `json:"token"`
-	UserInfo *UserInfo `json:"user_info"`
+	Token                     string    `json:"token"`
+	UserInfo                  *UserInfo `json:"user_info"`
+	AuthFlow                  string    `json:"auth_flow,omitempty"`
+	EmailVerificationRequired bool      `json:"email_verification_required,omitempty"`
 }
 
 type UserInfo struct {

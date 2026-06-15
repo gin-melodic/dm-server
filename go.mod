@@ -3,7 +3,6 @@ module dm-server
 go 1.25.0
 
 require (
-	github.com/MicahParks/keyfunc/v2 v2.1.0
 	github.com/gogf/gf/contrib/drivers/pgsql/v2 v2.10.2
 	github.com/gogf/gf/v2 v2.10.2
 	github.com/golang-jwt/jwt/v5 v5.3.1

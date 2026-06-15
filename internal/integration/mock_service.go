@@ -125,15 +125,15 @@ func (m *MockService) EmailLogin(ctx context.Context, req *v1User.EmailAuthReq) 
 		return nil, gerror.New("Mock Supabase Authentication Unavailable")
 	}
 
-	if req.AccessToken == "" {
-		return nil, gerror.New("Access token cannot be empty")
+	if req.Email == "" || req.Password == "" {
+		return nil, gerror.New("email/password cannot be empty")
 	}
 
 	userID := m.nextUserID
 	m.nextUserID++
 
-	email := fmt.Sprintf("user_%d@example.com", userID)
-	supabaseUID := fmt.Sprintf("supabase_uid_%s", req.AccessToken)
+	email := req.Email
+	supabaseUID := fmt.Sprintf("supabase_uid_%s", email)
 
 	userInfo := &v1User.UserInfo{
 		Id:       userID,
@@ -153,6 +153,7 @@ func (m *MockService) EmailLogin(ctx context.Context, req *v1User.EmailAuthReq) 
 	return &v1User.EmailAuthRes{
 		Token:    token,
 		UserInfo: userInfo,
+		AuthFlow: "signedIn",
 	}, nil
 }
 
