@@ -228,13 +228,13 @@ func TestFetchDreamList(t *testing.T) {
 		t.Errorf("Expected 200, got status: %d, code: %d, msg: %s", status, resp.Code, resp.Message)
 	}
 
-	// Boundary Scenario: Missing dates
+	// Boundary Scenario: Missing dates should fall back to paginated latest dreams
 	status, resp, err = sendRequest(http.MethodGet, "/v1/dream/list?pageSize=5&page=1", nil, token)
 	if err != nil {
 		t.Fatalf("FetchDreamList missing fields request failed: %v", err)
 	}
-	if status == http.StatusOK && resp.Code == 0 {
-		t.Errorf("Expected error for missing dates, got success")
+	if status != http.StatusOK || resp.Code != 0 {
+		t.Errorf("Expected 200 for missing dates pagination, got status: %d, code: %d, msg: %s", status, resp.Code, resp.Message)
 	}
 
 	// Boundary Scenario: Invalid date format

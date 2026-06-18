@@ -81,68 +81,104 @@ var allowedDreamEmotions = map[string]struct{}{
 }
 
 func (s *sHistory) FetchDreamList(ctx context.Context, req *v1.FetchDreamListReq) (*v1.FetchDreamListRes, error) {
-	// 1) Get user ID (injected by auth middleware)
-	userIdVal := ctx.Value(consts.CtxUserId)
-	if userIdVal == nil {
-		return nil, gerror.New("unauthorized: user id not found in context")
-	}
-	userID, ok := userIdVal.(uint64)
-	if !ok || userID == 0 {
-		return nil, gerror.New("invalid user id in context")
+	userID, err := getContextUserID(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	// 2) Build query model
 	dbModel := g.DB().Model("dreams d").
 		Where("d.user_id", userID).
 		Where("d.deleted_at IS NULL").
 		Where("d.status = 'completed'")
 
-	// 3) Add date range conditions
-	if req.StartDate != "" && req.EndDate != "" {
+	hasDateRange := req.StartDate != "" && req.EndDate != ""
+	if hasDateRange {
 		dbModel = dbModel.Where("d.dream_date BETWEEN ? AND ?", req.StartDate, req.EndDate)
-	} else {
-		// Date range is required
-		// Return 400
-		return nil, gerror.New("start_date and end_date is required")
+	} else if req.StartDate != "" || req.EndDate != "" {
+		return nil, gerror.New("startDate and endDate must be provided together")
 	}
 
-	// 4) Get total count
+	if req.Emotion != "" {
+		if !isAllowedDreamEmotion(req.Emotion) {
+			return nil, gerror.New("invalid dream emotion")
+		}
+		dbModel = dbModel.Where("d.emotion", req.Emotion)
+	}
+
+	if req.FavoriteOnly {
+		dbModel = dbModel.Where("d.is_favorite", true)
+	}
+
+	keyword := strings.TrimSpace(req.Keyword)
+	if keyword != "" {
+		likeKeyword := "%" + keyword + "%"
+		dbModel = dbModel.Where(
+			`(
+				d.title ILIKE ?
+				OR d.content ILIKE ?
+				OR d.tags ILIKE ?
+				OR d.symbols ILIKE ?
+				OR EXISTS (
+					SELECT 1
+					FROM analysis_sessions a
+					WHERE a.dream_id = d.id
+						AND a.deleted_at IS NULL
+						AND a.status = ?
+						AND a.result_summary ILIKE ?
+				)
+			)`,
+			likeKeyword,
+			likeKeyword,
+			likeKeyword,
+			likeKeyword,
+			dreamStatusCompleted,
+			likeKeyword,
+		)
+	}
+
 	total, err := dbModel.Count()
 	if err != nil {
 		return nil, gerror.Wrap(err, "failed to count dreams")
 	}
 
-	// 5) Set sorting
 	dbModel = dbModel.Order("d.created_at DESC")
 
-	// 6) Set pagination parameters
-	page := req.Page
-	if page <= 0 {
-		page = 1
-	}
-	pageSize := req.PageSize
-	if pageSize <= 0 {
-		pageSize = 10
-	}
-	if pageSize > 100 {
-		pageSize = 100
+	page, pageSize := 0, 0
+	if !hasDateRange {
+		page = req.Page
+		if page <= 0 {
+			page = 1
+		}
+		pageSize = req.PageSize
+		if pageSize <= 0 {
+			pageSize = 10
+		}
+		if pageSize > 100 {
+			pageSize = 100
+		}
+		dbModel = dbModel.Page(page, pageSize)
 	}
 
-	// 7) Execute paginated query with field selection
-	dbModel = dbModel.Fields("d.id, d.title, SUBSTRING(d.content,1,120) AS summary, TO_CHAR(d.created_at, 'YYYY-MM-DD HH24:MI:SS') AS create_time")
-	var list []v1.DreamSummary
-	err = dbModel.Page(page, pageSize).Scan(&list)
-	if err != nil {
+	var dreams []dreamRow
+	if err := dbModel.Scan(&dreams); err != nil {
 		return nil, gerror.Wrap(err, "failed to query dreams")
 	}
 
-	// 8) Return results
-	return &v1.FetchDreamListRes{
-		Data:     list,
-		Page:     page,
-		PageSize: pageSize,
-		Total:    int64(total),
-	}, nil
+	items := make([]v1.DreamRecord, 0, len(dreams))
+	for _, dream := range dreams {
+		items = append(items, *buildDreamRecordWithLatestAnalysis(ctx, dream))
+	}
+
+	res := &v1.FetchDreamListRes{
+		Items: items,
+		Total: int64(total),
+	}
+	if !hasDateRange {
+		res.Page = page
+		res.PageSize = pageSize
+		res.HasMore = page*pageSize < total
+	}
+	return res, nil
 }
 
 func (s *sHistory) GetDream(ctx context.Context, req *v1.GetDreamReq) (*v1.GetDreamRes, error) {

@@ -2,27 +2,24 @@ package v1
 
 import "github.com/gogf/gf/v2/frame/g"
 
-// Fetch dream list in date range (pagination)
+// Fetch dream list by date range or paginated latest records.
 type FetchDreamListReq struct {
-	g.Meta    `path:"/v1/dream/list" method:"get" summary:"Get the list of dreams" tags:"Dream"`
-	StartDate string `json:"startDate" form:"startDate" v:"required|date" example:"2022-01-01" dc:"Start date (inclusive)"`
-	EndDate   string `json:"endDate" form:"endDate" v:"required|date" example:"2022-12-31" dc:"End date (inclusive)"`
-	PageSize  int    `json:"pageSize" form:"pageSize" default:"10" example:"10" dc:"Page size"`
-	Page      int    `json:"page" form:"page" default:"1" example:"1" dc:"Current page (1-based)"`
-}
-
-type DreamSummary struct {
-	Id         uint64 `json:"id"`
-	Title      string `json:"title"`
-	Summary    string `json:"summary"`
-	CreateTime string `json:"createTime"`
+	g.Meta       `path:"/v1/dream/list" method:"get" summary:"Get the list of dreams" tags:"Dream"`
+	StartDate    string `json:"startDate" form:"startDate" v:"date" example:"2022-01-01" dc:"Start date (inclusive)"`
+	EndDate      string `json:"endDate" form:"endDate" v:"date" example:"2022-12-31" dc:"End date (inclusive)"`
+	Page         int    `json:"page" form:"page" default:"1" example:"1" dc:"Current page (1-based)"`
+	PageSize     int    `json:"pageSize" form:"pageSize" default:"10" example:"10" dc:"Page size"`
+	Keyword      string `json:"keyword" form:"keyword" dc:"Search keyword for title, content, analysis, or keywords"`
+	Emotion      string `json:"emotion" form:"emotion" dc:"Dream emotion"`
+	FavoriteOnly bool   `json:"favoriteOnly" form:"favoriteOnly" dc:"Only return favorite dreams"`
 }
 
 type FetchDreamListRes struct {
-	Data     []DreamSummary `json:"data"`
-	Page     int            `json:"page"`
-	PageSize int            `json:"pageSize"`
-	Total    int64          `json:"total"`
+	Items    []DreamRecord `json:"items"`
+	Total    int64         `json:"total"`
+	Page     int           `json:"page,omitempty"`
+	PageSize int           `json:"pageSize,omitempty"`
+	HasMore  bool          `json:"hasMore,omitempty"`
 }
 
 type DreamRecord struct {

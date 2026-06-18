@@ -156,6 +156,40 @@ func TestHistoryLogicDatabaseFlow(t *testing.T) {
 	if _, err := svc.SetDreamFavorite(userCtx, &v1.SetDreamFavoriteReq{Id: completeDreamID, IsFavorite: true}); err != nil {
 		t.Fatalf("SetDreamFavorite failed: %v", err)
 	}
+	olderDreamID := insertLogicTestDream(t, ctx, userID, time.Now().AddDate(0, 0, -1), "anxious", 0.82)
+	pagedList, err := svc.FetchDreamList(userCtx, &v1.FetchDreamListReq{Page: 1, PageSize: 1})
+	if err != nil {
+		t.Fatalf("FetchDreamList default pagination failed: %v", err)
+	}
+	if pagedList.Page != 1 || pagedList.PageSize != 1 || !pagedList.HasMore || len(pagedList.Items) != 1 || pagedList.Total < 2 {
+		t.Fatalf("unexpected paged list: %#v", pagedList)
+	}
+	rangeList, err := svc.FetchDreamList(userCtx, &v1.FetchDreamListReq{
+		StartDate: time.Now().AddDate(0, 0, -2).Format("2006-01-02"),
+		EndDate:   time.Now().AddDate(0, 0, 1).Format("2006-01-02"),
+		Page:      1,
+		PageSize:  1,
+	})
+	if err != nil {
+		t.Fatalf("FetchDreamList date range failed: %v", err)
+	}
+	if rangeList.Page != 0 || rangeList.PageSize != 0 || len(rangeList.Items) < 2 {
+		t.Fatalf("expected date range to return all matches without pagination, got %#v", rangeList)
+	}
+	filteredList, err := svc.FetchDreamList(userCtx, &v1.FetchDreamListReq{Emotion: "happy", FavoriteOnly: true})
+	if err != nil {
+		t.Fatalf("FetchDreamList emotion favorite filter failed: %v", err)
+	}
+	if filteredList.Total != 1 || len(filteredList.Items) != 1 || filteredList.Items[0].Id != completeDreamID {
+		t.Fatalf("unexpected emotion favorite filter result: %#v", filteredList)
+	}
+	keywordList, err := svc.FetchDreamList(userCtx, &v1.FetchDreamListReq{Keyword: "completed test analysis"})
+	if err != nil {
+		t.Fatalf("FetchDreamList keyword filter failed: %v", err)
+	}
+	if keywordList.Total < 2 || !containsDreamID(keywordList.Items, olderDreamID) {
+		t.Fatalf("expected keyword search to match analysis text, got %#v", keywordList)
+	}
 	home, err := svc.GetDreamHome(userCtx, &v1.GetDreamHomeReq{})
 	if err != nil {
 		t.Fatalf("GetDreamHome failed: %v", err)
@@ -228,4 +262,13 @@ func insertLogicTestDream(t *testing.T, ctx context.Context, userID uint64, drea
 		t.Fatalf("insert test analysis: %v", err)
 	}
 	return uint64(id)
+}
+
+func containsDreamID(items []v1.DreamRecord, dreamID uint64) bool {
+	for _, item := range items {
+		if item.Id == dreamID {
+			return true
+		}
+	}
+	return false
 }

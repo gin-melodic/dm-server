@@ -22,7 +22,7 @@ import (
 type MockService struct {
 	mu           sync.RWMutex
 	users        map[uint64]*v1User.UserInfo
-	dreams       map[uint64]*v1History.DreamSummary
+	dreams       map[uint64]*v1History.DreamRecord
 	dreamResults map[uint64]string
 	settings     map[uint64]*v1User.UserSettings
 	nextDreamID  uint64
@@ -35,7 +35,7 @@ type MockService struct {
 func NewMockService(cfg TestConfig) *MockService {
 	m := &MockService{
 		users:        make(map[uint64]*v1User.UserInfo),
-		dreams:       make(map[uint64]*v1History.DreamSummary),
+		dreams:       make(map[uint64]*v1History.DreamRecord),
 		dreamResults: make(map[uint64]string),
 		settings:     make(map[uint64]*v1User.UserSettings),
 		nextDreamID:  100,
@@ -51,11 +51,18 @@ func NewMockService(cfg TestConfig) *MockService {
 		Avatar:   "https://example.com/avatar.png",
 	}
 
-	m.dreams[1] = &v1History.DreamSummary{
-		Id:         1,
-		Title:      "飞翔之梦",
-		Summary:    "在云端自由飞翔的轻松梦境",
-		CreateTime: "2026-05-20 10:00:00",
+	m.dreams[1] = &v1History.DreamRecord{
+		Id:              1,
+		Title:           "飞翔之梦",
+		Content:         "在云端自由飞翔的轻松梦境",
+		Interpretation:  "梦见飞翔体现了潜意识中摆脱日常束缚、追求绝对自由的愿望满足。",
+		Emotion:         "happy",
+		Keywords:        []string{"飞翔", "自由"},
+		Symbols:         []string{"天空"},
+		ConfidenceScore: 0.88,
+		IsFavorite:      false,
+		CreatedAt:       "2026-05-20 10:00:00",
+		UpdatedAt:       "2026-05-20 10:00:00",
 	}
 	m.dreamResults[1] = "# 飞翔之梦\n\n## 梦境元素映射\n| 意象 | 潜在象征 | 弗洛伊德对应 | 深层原型层 |\n|---|---|---|---|\n| 飞翔 | 摆脱束缚，追求掌控 | 愿望满足 | 自我超越原型 |\n\n## 多元解析视角\n### 弗洛伊德视角 (55%)\n梦见飞翔体现了潜意识中摆脱日常束缚、追求绝对自由的愿望满足。\n### 民俗视角 (45%)\n民俗中飞翔预示着事业上升或生活中的一次重大飞跃。\n\n## 现实结合\n- 发展性建议：勇敢尝试手头正在犹豫的创新项目。\n- 心理预警：防范从高度兴奋突然跌落的心理落差。\n- 机遇提示：3个月内或有重大职位晋升机会。"
 
@@ -379,10 +386,6 @@ func (m *MockService) FetchDreamList(ctx context.Context, req *v1History.FetchDr
 		return nil, gerror.New("Database fetch failed")
 	}
 
-	if req.StartDate == "" || req.EndDate == "" {
-		return nil, gerror.New("StartDate and EndDate are required")
-	}
-
 	pageSize := req.PageSize
 	if pageSize <= 0 {
 		pageSize = 10
@@ -392,22 +395,41 @@ func (m *MockService) FetchDreamList(ctx context.Context, req *v1History.FetchDr
 		page = 1
 	}
 
-	var list []v1History.DreamSummary
+	var list []v1History.DreamRecord
 	for _, dream := range m.dreams {
-		// Simply add all to list (date filtering is mocked as matching)
+		if req.Keyword != "" && !strings.Contains(dream.Title, req.Keyword) && !strings.Contains(dream.Content, req.Keyword) && !strings.Contains(dream.Interpretation, req.Keyword) {
+			continue
+		}
+		if req.Emotion != "" && dream.Emotion != req.Emotion {
+			continue
+		}
+		if req.FavoriteOnly && !dream.IsFavorite {
+			continue
+		}
 		list = append(list, *dream)
 	}
 
 	total := int64(len(list))
+	hasDateRange := req.StartDate != "" && req.EndDate != ""
+	if req.StartDate != "" && req.EndDate == "" || req.StartDate == "" && req.EndDate != "" {
+		return nil, gerror.New("StartDate and EndDate must be provided together")
+	}
+
+	if hasDateRange {
+		return &v1History.FetchDreamListRes{
+			Items: list,
+			Total: total,
+		}, nil
+	}
 
 	// Implement simple pagination
 	startIdx := (page - 1) * pageSize
 	if startIdx >= len(list) {
 		return &v1History.FetchDreamListRes{
-			Data:     []v1History.DreamSummary{},
+			Items:    []v1History.DreamRecord{},
+			Total:    total,
 			Page:     page,
 			PageSize: pageSize,
-			Total:    total,
 		}, nil
 	}
 
@@ -417,10 +439,11 @@ func (m *MockService) FetchDreamList(ctx context.Context, req *v1History.FetchDr
 	}
 
 	return &v1History.FetchDreamListRes{
-		Data:     list[startIdx:endIdx],
+		Items:    list[startIdx:endIdx],
+		Total:    total,
 		Page:     page,
 		PageSize: pageSize,
-		Total:    total,
+		HasMore:  endIdx < len(list),
 	}, nil
 }
 
@@ -481,7 +504,7 @@ func (m *MockService) UpdateDream(ctx context.Context, req *v1History.UpdateDrea
 		dream.Title = req.Title
 	}
 	if req.Content != "" {
-		dream.Summary = req.Content
+		dream.Content = req.Content
 	}
 	record, err := m.mockDreamRecord(req.Id)
 	if err != nil {
@@ -525,11 +548,17 @@ func (m *MockService) CreateDreamAnalysis(ctx context.Context, req *v1History.Cr
 }
 
 func (m *MockService) SetDreamFavorite(ctx context.Context, req *v1History.SetDreamFavoriteReq) (*v1History.SetDreamFavoriteRes, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	dream, exists := m.dreams[req.Id]
+	if !exists {
+		return nil, gerror.New("Dream not found")
+	}
+	dream.IsFavorite = req.IsFavorite
 	record, err := m.mockDreamRecord(req.Id)
 	if err != nil {
 		return nil, err
 	}
-	record.IsFavorite = req.IsFavorite
 	res := v1History.SetDreamFavoriteRes(*record)
 	return &res, nil
 }
@@ -591,11 +620,18 @@ func (m *MockService) StreamDream(ctx context.Context, content string) (<-chan s
 	dreamID := m.nextDreamID
 	m.nextDreamID++
 
-	m.dreams[dreamID] = &v1History.DreamSummary{
-		Id:         dreamID,
-		Title:      "解析梦境",
-		Summary:    strings.Fields(content)[0] + "...",
-		CreateTime: time.Now().Format("2006-01-02 15:04:05"),
+	m.dreams[dreamID] = &v1History.DreamRecord{
+		Id:              dreamID,
+		Title:           "解析梦境",
+		Content:         content,
+		Interpretation:  "",
+		Emotion:         "neutral",
+		Keywords:        []string{},
+		Symbols:         []string{},
+		ConfidenceScore: 0.86,
+		IsFavorite:      false,
+		CreatedAt:       time.Now().Format("2006-01-02 15:04:05"),
+		UpdatedAt:       time.Now().Format("2006-01-02 15:04:05"),
 	}
 
 	markdownOutput := []string{
@@ -646,18 +682,23 @@ func (m *MockService) mockDreamRecord(id uint64) (*v1History.DreamRecord, error)
 	if !exists {
 		return nil, gerror.New("Dream not found")
 	}
-	return &v1History.DreamRecord{
-		Id:              dream.Id,
-		Title:           dream.Title,
-		Content:         dream.Summary,
-		Interpretation:  m.dreamResults[id],
-		Emotion:         "neutral",
-		Keywords:        []string{},
-		ConfidenceScore: 0.86,
-		IsFavorite:      false,
-		CreatedAt:       dream.CreateTime,
-		UpdatedAt:       dream.CreateTime,
-	}, nil
+	record := *dream
+	if record.Interpretation == "" {
+		record.Interpretation = m.dreamResults[id]
+	}
+	if record.Emotion == "" {
+		record.Emotion = "neutral"
+	}
+	if record.Keywords == nil {
+		record.Keywords = []string{}
+	}
+	if record.Symbols == nil {
+		record.Symbols = []string{}
+	}
+	if record.ConfidenceScore == 0 {
+		record.ConfidenceScore = 0.86
+	}
+	return &record, nil
 }
 
 func mockUserID(ctx context.Context) (uint64, error) {
