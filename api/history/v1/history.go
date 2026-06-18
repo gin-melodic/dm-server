@@ -32,6 +32,7 @@ type DreamRecord struct {
 	Interpretation  string   `json:"interpretation"`
 	Emotion         string   `json:"emotion"`
 	Keywords        []string `json:"keywords"`
+	Symbols         []string `json:"symbols"`
 	ConfidenceScore float64  `json:"confidenceScore"`
 	IsFavorite      bool     `json:"isFavorite"`
 	CreatedAt       string   `json:"createdAt"`
@@ -93,6 +94,7 @@ type DreamAnalysisResult struct {
 	Summary         string   `json:"summary"`
 	Interpretation  string   `json:"interpretation"`
 	Keywords        []string `json:"keywords"`
+	Symbols         []string `json:"symbols"`
 	ConfidenceScore float64  `json:"confidenceScore"`
 	Locale          string   `json:"locale"`
 }

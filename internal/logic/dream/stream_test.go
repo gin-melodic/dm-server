@@ -15,7 +15,8 @@ import (
 )
 
 func TestStreamDreamUsesL1InterpretationWithoutLLM(t *testing.T) {
-	ctx := dreamStreamTestContext()
+	metadata := &consts.DreamStreamMetadata{}
+	ctx := context.WithValue(dreamStreamTestContext(), consts.CtxDreamStreamMetadata, metadata)
 	var ollamaCalled bool
 
 	knowledgeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,10 +62,14 @@ func TestStreamDreamUsesL1InterpretationWithoutLLM(t *testing.T) {
 	if ollamaCalled {
 		t.Fatal("expected L1 hit to skip LLM")
 	}
+	if metadata.InferenceLevel != "L1" || len(metadata.SymbolsDetected) != 2 || metadata.SymbolsDetected[0] != "水" {
+		t.Fatalf("expected L1 metadata symbols, got %+v", metadata)
+	}
 }
 
 func TestStreamDreamUsesInterpretDreamPassagesWhenL1Misses(t *testing.T) {
-	ctx := dreamStreamTestContext()
+	metadata := &consts.DreamStreamMetadata{}
+	ctx := context.WithValue(dreamStreamTestContext(), consts.CtxDreamStreamMetadata, metadata)
 	var prompt string
 
 	knowledgeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -83,6 +88,8 @@ func TestStreamDreamUsesInterpretDreamPassagesWhenL1Misses(t *testing.T) {
 					}
 				},
 				"total_matches": 1,
+				"symbols_detected": ["门"],
+				"inference_level": "L2",
 				"frameworks_used": ["jungian"]
 			},
 			"message": "梦境解析完成"
@@ -111,6 +118,9 @@ func TestStreamDreamUsesInterpretDreamPassagesWhenL1Misses(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "知识片段内容") {
 		t.Fatalf("expected prompt to include interpretation passages, got %q", prompt)
+	}
+	if metadata.InferenceLevel != "L2" || len(metadata.SymbolsDetected) != 1 || metadata.SymbolsDetected[0] != "门" {
+		t.Fatalf("expected miss metadata symbols, got %+v", metadata)
 	}
 }
 

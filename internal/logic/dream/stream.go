@@ -33,6 +33,14 @@ func init() {
 	service.RegisterDream(New())
 }
 
+func (s *sDream) ExtractDreamSymbols(ctx context.Context, content string, emotionTags []string) ([]string, error) {
+	return shareKnowledge.extractSymbols(ctx, content, filterEmotionTags(emotionTags...))
+}
+
+func (s *sDream) SinkDreamSymbolCache(ctx context.Context, userId string, symbols []string, interpretation string, sourceDreamId string) error {
+	return shareKnowledge.sinkSymbolCache(ctx, userId, symbols, interpretation, sourceDreamId)
+}
+
 // StreamDream Real-time streaming dream analysis
 func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan string, error) {
 	ch := make(chan string, 10)
@@ -97,9 +105,13 @@ func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan string
 			glog.Warningf(ctx, "知识库L1解析失败: %v", err)
 		}
 		if interpretResp != nil && interpretResp.isL1Hit() {
+			setDreamStreamMetadata(ctx, interpretResp)
 			glog.Infof(ctx, "知识库L1缓存命中: symbols=%v matched=%v", interpretResp.Data.SymbolsDetected, interpretResp.Data.SymbolsMatched)
 			ch <- interpretResp.Data.Interpretation
 			return
+		}
+		if interpretResp != nil {
+			setDreamStreamMetadata(ctx, interpretResp)
 		}
 
 		kw := interpretResp.toSearchResponse()
@@ -172,6 +184,23 @@ func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan string
 	}()
 
 	return ch, nil
+}
+
+func setDreamStreamMetadata(ctx context.Context, resp *interpretDreamResponse) {
+	if resp == nil {
+		return
+	}
+	metadata, ok := ctx.Value(consts.CtxDreamStreamMetadata).(*consts.DreamStreamMetadata)
+	if !ok || metadata == nil {
+		return
+	}
+	if symbols := normalizeSymbols(resp.Data.SymbolsDetected); len(symbols) > 0 {
+		metadata.SymbolsDetected = symbols
+	}
+	if symbols := normalizeSymbols(resp.Data.SymbolsMatched); len(symbols) > 0 {
+		metadata.SymbolsMatched = symbols
+	}
+	metadata.InferenceLevel = strings.TrimSpace(resp.Data.InferenceLevel)
 }
 
 func dreamEmotionTagsFromContext(ctx context.Context) []string {

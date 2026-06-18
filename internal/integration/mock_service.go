@@ -569,6 +569,14 @@ func (m *MockService) GetTodayDreamRecommendation(ctx context.Context, req *v1Hi
 // service.IDream Implementation
 // ==========================================
 
+func (m *MockService) ExtractDreamSymbols(ctx context.Context, content string, emotionTags []string) ([]string, error) {
+	return []string{}, nil
+}
+
+func (m *MockService) SinkDreamSymbolCache(ctx context.Context, userId string, symbols []string, interpretation string, sourceDreamId string) error {
+	return nil
+}
+
 func (m *MockService) StreamDream(ctx context.Context, content string) (<-chan string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

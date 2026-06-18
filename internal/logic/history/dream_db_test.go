@@ -18,9 +18,34 @@ import (
 )
 
 type fakeDreamStream struct {
-	chunks      []string
-	err         error
-	emotionTags *[]string
+	chunks             []string
+	err                error
+	emotionTags        *[]string
+	symbols            []string
+	sunkSymbols        *[]string
+	sinkCalled         *bool
+	sinkSourceDream    *string
+	sinkInterpretation *string
+}
+
+func (f fakeDreamStream) ExtractDreamSymbols(ctx context.Context, content string, emotionTags []string) ([]string, error) {
+	return f.symbols, nil
+}
+
+func (f fakeDreamStream) SinkDreamSymbolCache(ctx context.Context, userId string, symbols []string, interpretation string, sourceDreamId string) error {
+	if f.sinkCalled != nil {
+		*f.sinkCalled = true
+	}
+	if f.sunkSymbols != nil {
+		*f.sunkSymbols = append((*f.sunkSymbols)[:0], symbols...)
+	}
+	if f.sinkSourceDream != nil {
+		*f.sinkSourceDream = sourceDreamId
+	}
+	if f.sinkInterpretation != nil {
+		*f.sinkInterpretation = interpretation
+	}
+	return nil
 }
 
 func (f fakeDreamStream) StreamDream(ctx context.Context, content string) (<-chan string, error) {
@@ -50,6 +75,9 @@ func TestHistoryLogicDatabaseFlow(t *testing.T) {
 	if _, err := g.DB().GetValue(ctx, "SELECT emotion FROM dreams LIMIT 0"); err != nil {
 		t.Skipf("dream API schema changes are not applied: %v", err)
 	}
+	if _, err := g.DB().GetValue(ctx, "SELECT symbols FROM dreams LIMIT 0"); err != nil {
+		t.Skipf("dream symbol schema changes are not applied: %v", err)
+	}
 
 	userID := createLogicTestUser(t, ctx)
 	t.Cleanup(func() { cleanupLogicTestUser(ctx, userID) })
@@ -57,9 +85,18 @@ func TestHistoryLogicDatabaseFlow(t *testing.T) {
 	svc := New()
 
 	var observedEmotionTags []string
+	var sunkSymbols []string
+	var sinkCalled bool
+	var sinkSourceDream string
+	var sinkInterpretation string
 	service.RegisterDream(fakeDreamStream{
-		chunks:      []string{"# 「清晨之门」\n\n", "## 综合小结\n醒来后感觉轻松。"},
-		emotionTags: &observedEmotionTags,
+		chunks:             []string{"# 「清晨之门」\n\n", "## 综合小结\n醒来后感觉轻松。"},
+		emotionTags:        &observedEmotionTags,
+		symbols:            []string{"门", "光"},
+		sunkSymbols:        &sunkSymbols,
+		sinkCalled:         &sinkCalled,
+		sinkSourceDream:    &sinkSourceDream,
+		sinkInterpretation: &sinkInterpretation,
 	})
 	analyzeRes, err := svc.CreateDreamAnalysis(userCtx, &v1.CreateDreamAnalysisReq{
 		Content: "我梦见自己穿过一扇发光的门",
@@ -78,6 +115,12 @@ func TestHistoryLogicDatabaseFlow(t *testing.T) {
 	if len(observedEmotionTags) != 1 || observedEmotionTags[0] != "peaceful" {
 		t.Fatalf("expected emotion tag to be forwarded, got %#v", observedEmotionTags)
 	}
+	if len(analyzeRes.Dream.Symbols) != 2 || analyzeRes.Dream.Symbols[0] != "门" || analyzeRes.Analysis.Symbols[1] != "光" {
+		t.Fatalf("expected symbols to be returned, got dream=%#v analysis=%#v", analyzeRes.Dream.Symbols, analyzeRes.Analysis.Symbols)
+	}
+	if !sinkCalled || len(sunkSymbols) != 2 || sunkSymbols[0] != "门" || sinkSourceDream == "" || !strings.Contains(sinkInterpretation, "醒来后感觉轻松") {
+		t.Fatalf("expected final analysis to sink symbols, called=%v symbols=%#v source=%q interpretation=%q", sinkCalled, sunkSymbols, sinkSourceDream, sinkInterpretation)
+	}
 
 	detail, err := svc.GetDream(userCtx, &v1.GetDreamReq{Id: analyzeRes.Dream.Id})
 	if err != nil {
@@ -86,6 +129,9 @@ func TestHistoryLogicDatabaseFlow(t *testing.T) {
 	if !strings.Contains(detail.Interpretation, "醒来后感觉轻松") {
 		t.Fatalf("expected completed analysis interpretation, got %q", detail.Interpretation)
 	}
+	if len(detail.Symbols) != 2 || detail.Symbols[0] != "门" {
+		t.Fatalf("expected persisted symbols, got %#v", detail.Symbols)
+	}
 
 	updateRes, err := svc.UpdateDream(userCtx, &v1.UpdateDreamReq{Id: detail.Id, Content: "我重新记录了这个梦", Emotion: "neutral"})
 	if err != nil {
@@ -93,6 +139,9 @@ func TestHistoryLogicDatabaseFlow(t *testing.T) {
 	}
 	if updateRes.Interpretation != "" {
 		t.Fatalf("expected content update to invalidate analysis, got %q", updateRes.Interpretation)
+	}
+	if len(updateRes.Symbols) != 0 {
+		t.Fatalf("expected content update to clear symbols, got %#v", updateRes.Symbols)
 	}
 	statusValue, err := g.DB().Model("dreams").Fields("status").Where("id", detail.Id).Value()
 	if err != nil {
@@ -159,6 +208,7 @@ func insertLogicTestDream(t *testing.T, ctx context.Context, userID uint64, drea
 		"content":          "logic test dream",
 		"dream_date":       dreamDate.Format("2006-01-02"),
 		"tags":             "guide,teacher",
+		"symbols":          "老师,门",
 		"emotion":          emotion,
 		"status":           dreamStatusCompleted,
 		"confidence_score": confidence,

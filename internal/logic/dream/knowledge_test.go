@@ -88,3 +88,78 @@ func TestInterpretDreamResponseToSearchResponse(t *testing.T) {
 		t.Fatalf("unexpected search result: %+v", (*results)[0])
 	}
 }
+
+func TestKnowledgeExtractSymbols(t *testing.T) {
+	ctx := context.Background()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/extract_symbols" {
+			t.Fatalf("expected path /api/v1/extract_symbols, got %s", r.URL.Path)
+		}
+		var req extractSymbolsRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		if req.Description != "我梦到乌龟吃草" || len(req.EmotionTags) != 1 || req.EmotionTags[0] != "peaceful" {
+			t.Fatalf("unexpected request: %+v", req)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"success": true,
+			"data": {"symbols_detected": ["乌龟", "草", "乌龟"]},
+			"message": "符号提取完成"
+		}`))
+	}))
+	defer server.Close()
+	configureKnowledgeTest(t, server.URL)
+
+	symbols, err := shareKnowledge.extractSymbols(ctx, "我梦到乌龟吃草", []string{"peaceful"})
+	if err != nil {
+		t.Fatalf("extractSymbols failed: %v", err)
+	}
+	if len(symbols) != 2 || symbols[0] != "乌龟" || symbols[1] != "草" {
+		t.Fatalf("unexpected symbols: %+v", symbols)
+	}
+}
+
+func TestKnowledgeSinkSymbolCache(t *testing.T) {
+	ctx := context.Background()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/symbol_cache/sink" {
+			t.Fatalf("expected path /api/v1/symbol_cache/sink, got %s", r.URL.Path)
+		}
+		var req sinkSymbolCacheRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		if req.UserId != "14" || req.SourceDreamId != "99" || req.Interpretation != "乌龟意味着缓慢而稳定。" {
+			t.Fatalf("unexpected request: %+v", req)
+		}
+		if len(req.Symbols) != 2 || req.Symbols[0] != "乌龟" || req.Symbols[1] != "草" {
+			t.Fatalf("unexpected symbols: %+v", req.Symbols)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"success": true,
+			"data": {"stored": 1, "skipped": 1},
+			"message": "L1符号缓存回写完成"
+		}`))
+	}))
+	defer server.Close()
+	configureKnowledgeTest(t, server.URL)
+
+	if err := shareKnowledge.sinkSymbolCache(ctx, "14", []string{"乌龟", "草", "乌龟"}, "乌龟意味着缓慢而稳定。", "99"); err != nil {
+		t.Fatalf("sinkSymbolCache failed: %v", err)
+	}
+}
+
+func configureKnowledgeTest(t *testing.T, baseURL string) {
+	t.Helper()
+	if adapter, ok := g.Cfg().GetAdapter().(*gcfg.AdapterFile); ok {
+		adapter.Set("knowledge.base_url", baseURL)
+		adapter.Set("knowledge.timeout", "5")
+	}
+}

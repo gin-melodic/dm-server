@@ -32,6 +32,32 @@ type interpretDreamRequest struct {
 	SkipL1            bool     `json:"skip_l1,omitempty"`
 }
 
+type extractSymbolsRequest struct {
+	Description string   `json:"description"`
+	EmotionTags []string `json:"emotion_tags,omitempty"`
+}
+
+type extractSymbolsResponse struct {
+	Success bool `json:"success"`
+	Data    struct {
+		SymbolsDetected []string `json:"symbols_detected"`
+	} `json:"data"`
+	Message string `json:"message"`
+}
+
+type sinkSymbolCacheRequest struct {
+	UserId         string   `json:"user_id,omitempty"`
+	Symbols        []string `json:"symbols"`
+	Interpretation string   `json:"interpretation"`
+	SourceDreamId  string   `json:"source_dream_id,omitempty"`
+}
+
+type sinkSymbolCacheResponse struct {
+	Success bool                   `json:"success"`
+	Data    map[string]interface{} `json:"data"`
+	Message string                 `json:"message"`
+}
+
 // searchResponse represents the response structure from knowledge base search API
 type searchResponseResult struct {
 	Score               float64 `json:"score"`
@@ -156,6 +182,45 @@ func (s *sKnowledge) interpretDream(ctx context.Context, query string, userId st
 	return &resp, nil
 }
 
+func (s *sKnowledge) extractSymbols(ctx context.Context, query string, emotionTags []string) ([]string, error) {
+	request := extractSymbolsRequest{
+		Description: query,
+		EmotionTags: emotionTags,
+	}
+
+	var resp extractSymbolsResponse
+	if err := s.postJSON(ctx, "/api/v1/extract_symbols", request, &resp); err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, gerror.Newf("knowledge symbol extraction failed: %s", resp.Message)
+	}
+	return normalizeSymbols(resp.Data.SymbolsDetected), nil
+}
+
+func (s *sKnowledge) sinkSymbolCache(ctx context.Context, userId string, symbols []string, interpretation string, sourceDreamId string) error {
+	symbols = normalizeSymbols(symbols)
+	if len(symbols) == 0 || strings.TrimSpace(interpretation) == "" {
+		return nil
+	}
+
+	request := sinkSymbolCacheRequest{
+		UserId:         userId,
+		Symbols:        symbols,
+		Interpretation: interpretation,
+		SourceDreamId:  sourceDreamId,
+	}
+
+	var resp sinkSymbolCacheResponse
+	if err := s.postJSON(ctx, "/api/v1/symbol_cache/sink", request, &resp); err != nil {
+		return err
+	}
+	if !resp.Success {
+		return gerror.Newf("knowledge symbol cache sink failed: %s", resp.Message)
+	}
+	return nil
+}
+
 // search Search knowledge base
 func (s *sKnowledge) search(ctx context.Context, query string) (*searchResponse, error) {
 	request := searchRequest{
@@ -188,4 +253,21 @@ func (s *sKnowledge) formatKnowledge(knowledge *searchResponse) string {
 	}
 
 	return result
+}
+
+func normalizeSymbols(symbols []string) []string {
+	seen := make(map[string]struct{}, len(symbols))
+	normalized := make([]string, 0, len(symbols))
+	for _, symbol := range symbols {
+		symbol = strings.TrimSpace(symbol)
+		if symbol == "" {
+			continue
+		}
+		if _, ok := seen[symbol]; ok {
+			continue
+		}
+		seen[symbol] = struct{}{}
+		normalized = append(normalized, symbol)
+	}
+	return normalized
 }

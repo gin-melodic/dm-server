@@ -27,6 +27,7 @@ type DreamsColumns struct {
 	Content   string // Dream content
 	DreamDate string // Date the dream occurred
 	Tags      string // Comma-separated tag list
+	Symbols   string // Comma-separated standard dream symbols
 	CreatedAt string // Created at
 	UpdatedAt string // Updated at
 	DeletedAt string // Deleted at, NULL means not deleted
@@ -41,6 +42,7 @@ var dreamsColumns = DreamsColumns{
 	Content:   "content",
 	DreamDate: "dream_date",
 	Tags:      "tags",
+	Symbols:   "symbols",
 	CreatedAt: "created_at",
 	UpdatedAt: "updated_at",
 	DeletedAt: "deleted_at",

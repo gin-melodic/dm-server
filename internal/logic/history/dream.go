@@ -32,6 +32,7 @@ type dreamRow struct {
 	Content         string      `orm:"content"`
 	DreamDate       *gtime.Time `orm:"dream_date"`
 	Tags            string      `orm:"tags"`
+	Symbols         string      `orm:"symbols"`
 	CreatedAt       *gtime.Time `orm:"created_at"`
 	UpdatedAt       *gtime.Time `orm:"updated_at"`
 	DeletedAt       *gtime.Time `orm:"deleted_at"`
@@ -179,6 +180,7 @@ func (s *sHistory) UpdateDream(ctx context.Context, req *v1.UpdateDreamReq) (*v1
 		}
 		data["content"] = req.Content
 		data["status"] = dreamStatusPending
+		data["symbols"] = ""
 	}
 	if req.Emotion != "" {
 		if !isAllowedDreamEmotion(req.Emotion) {
@@ -278,7 +280,16 @@ func (s *sHistory) CreateDreamAnalysis(ctx context.Context, req *v1.CreateDreamA
 		return nil, err
 	}
 
-	streamCtx := context.WithValue(ctx, consts.CtxDreamEmotionTags, filterHistoryEmotionTags(emotion))
+	emotionTags := filterHistoryEmotionTags(emotion)
+	symbols, err := service.Dream().ExtractDreamSymbols(ctx, req.Content, emotionTags)
+	if err != nil {
+		glog.Warningf(ctx, "知识库符号提取失败: %v", err)
+	}
+	streamMetadata := &consts.DreamStreamMetadata{
+		SymbolsDetected: normalizeDreamSymbols(symbols),
+	}
+	streamCtx := context.WithValue(ctx, consts.CtxDreamEmotionTags, emotionTags)
+	streamCtx = context.WithValue(streamCtx, consts.CtxDreamStreamMetadata, streamMetadata)
 	ch, err := service.Dream().StreamDream(streamCtx, req.Content)
 	if err != nil {
 		_ = updateAnalysisLifecycle(ctx, dreamID, sessionID, dreamStatusError, 100, err.Error())
@@ -296,12 +307,14 @@ func (s *sHistory) CreateDreamAnalysis(ctx context.Context, req *v1.CreateDreamA
 	analysisText := builder.String()
 	title, interpretation := extractAnalysisTitleAndBody(analysisText)
 	keywords := deriveDreamKeywords(req.Content, interpretation, emotion)
+	finalSymbols := normalizeDreamSymbols(streamMetadata.SymbolsDetected)
 	err = g.DB().Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
 		if _, err := tx.Model("dreams").
 			Where("id = ? AND user_id = ? AND deleted_at IS NULL", dreamID, userID).
 			Data(g.Map{
 				"title":            title,
 				"tags":             strings.Join(keywords, ","),
+				"symbols":          strings.Join(finalSymbols, ","),
 				"emotion":          emotion,
 				"status":           dreamStatusCompleted,
 				"confidence_score": analysisConfidence,
@@ -326,6 +339,11 @@ func (s *sHistory) CreateDreamAnalysis(ctx context.Context, req *v1.CreateDreamA
 	if err != nil {
 		_ = updateAnalysisLifecycle(ctx, dreamID, sessionID, dreamStatusError, 100, err.Error())
 		return nil, err
+	}
+	if streamMetadata.InferenceLevel != "L1" && len(finalSymbols) > 0 {
+		if err := service.Dream().SinkDreamSymbolCache(ctx, fmt.Sprintf("%d", userID), finalSymbols, interpretation, fmt.Sprintf("%d", dreamID)); err != nil {
+			glog.Warningf(ctx, "知识库L1符号缓存回写失败: %v", err)
+		}
 	}
 
 	record, err := s.getDreamRecord(ctx, userID, dreamID)
@@ -588,6 +606,7 @@ func buildDreamRecord(dream dreamRow, interpretation string) *v1.DreamRecord {
 		Interpretation:  interpretation,
 		Emotion:         dream.Emotion,
 		Keywords:        splitKeywords(dream.Tags),
+		Symbols:         splitSymbols(dream.Symbols),
 		ConfidenceScore: dream.ConfidenceScore,
 		IsFavorite:      dream.IsFavorite,
 		CreatedAt:       formatGTime(dream.CreatedAt),
@@ -604,6 +623,7 @@ func buildAnalysisResult(text string, record *v1.DreamRecord, locale string) *v1
 		Summary:         summary,
 		Interpretation:  text,
 		Keywords:        record.Keywords,
+		Symbols:         record.Symbols,
 		ConfidenceScore: record.ConfidenceScore,
 		Locale:          locale,
 	}
@@ -631,6 +651,30 @@ func splitKeywords(tags string) []string {
 		}
 	}
 	return keywords
+}
+
+func splitSymbols(symbols string) []string {
+	if symbols == "" {
+		return []string{}
+	}
+	return normalizeDreamSymbols(strings.Split(symbols, ","))
+}
+
+func normalizeDreamSymbols(symbols []string) []string {
+	seen := make(map[string]struct{}, len(symbols))
+	normalized := make([]string, 0, len(symbols))
+	for _, symbol := range symbols {
+		symbol = strings.TrimSpace(symbol)
+		if symbol == "" {
+			continue
+		}
+		if _, ok := seen[symbol]; ok {
+			continue
+		}
+		seen[symbol] = struct{}{}
+		normalized = append(normalized, symbol)
+	}
+	return normalized
 }
 
 func formatGTime(t *gtime.Time) string {

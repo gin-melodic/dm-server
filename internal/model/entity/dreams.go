@@ -16,6 +16,7 @@ type Dreams struct {
 	Content   string      `json:"content"   orm:"content"    description:"Dream content"`                                    // Dream content
 	DreamDate *gtime.Time `json:"dreamDate" orm:"dream_date" description:"Date the dream occurred"`                          // Date the dream occurred
 	Tags      string      `json:"tags"      orm:"tags"       description:"Comma-separated tag list"`                         // Comma-separated tag list
+	Symbols   string      `json:"symbols"   orm:"symbols"    description:"Comma-separated standard dream symbols"`           // Comma-separated standard dream symbols
 	CreatedAt *gtime.Time `json:"createdAt" orm:"created_at" description:"Created at"`                                       // Created at
 	UpdatedAt *gtime.Time `json:"updatedAt" orm:"updated_at" description:"Updated at"`                                       // Updated at
 	DeletedAt *gtime.Time `json:"deletedAt" orm:"deleted_at" description:"Deleted at, NULL means not deleted"`               // Deleted at, NULL means not deleted

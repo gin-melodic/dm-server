@@ -18,6 +18,7 @@ type Dreams struct {
 	Content   any         // Dream content
 	DreamDate *gtime.Time // Date the dream occurred
 	Tags      any         // Comma-separated tag list
+	Symbols   any         // Comma-separated standard dream symbols
 	CreatedAt *gtime.Time // Created at
 	UpdatedAt *gtime.Time // Updated at
 	DeletedAt *gtime.Time // Deleted at, NULL means not deleted

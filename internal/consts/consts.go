@@ -9,11 +9,18 @@ type CtxUser struct {
 	SupabaseUID string // Supabase Auth user UID
 }
 
+type DreamStreamMetadata struct {
+	SymbolsDetected []string
+	SymbolsMatched  []string
+	InferenceLevel  string
+}
+
 const (
-	CtxUserId           ContextKey = "userId"
-	CtxOpenId           ContextKey = "openId"
-	CtxSupabaseUid      ContextKey = "supabaseUid"
-	CtxDreamEmotionTags ContextKey = "dreamEmotionTags"
+	CtxUserId              ContextKey = "userId"
+	CtxOpenId              ContextKey = "openId"
+	CtxSupabaseUid         ContextKey = "supabaseUid"
+	CtxDreamEmotionTags    ContextKey = "dreamEmotionTags"
+	CtxDreamStreamMetadata ContextKey = "dreamStreamMetadata"
 )
 
 const (
