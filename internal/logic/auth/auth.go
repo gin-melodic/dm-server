@@ -44,6 +44,7 @@ var (
 type psycheDreamRow struct {
 	Id              uint64      `orm:"id"`
 	Tags            string      `orm:"tags"`
+	Symbols         string      `orm:"symbols"`
 	Emotion         string      `orm:"emotion"`
 	ConfidenceScore float64     `orm:"confidence_score"`
 	CreatedAt       *gtime.Time `orm:"created_at"`
@@ -319,19 +320,21 @@ func (s *sAuth) GetPsycheProfile(ctx context.Context, req *v1.GetPsycheProfileRe
 	}
 	var dreams []psycheDreamRow
 	err = g.DB().Model("dreams").
-		Fields("id, tags, emotion, confidence_score, created_at").
+		Fields("id, tags, symbols, emotion, confidence_score, created_at").
 		Where("user_id = ? AND deleted_at IS NULL AND status = ?", userID, "completed").
 		OrderDesc("created_at").
 		Scan(&dreams)
 	if err != nil {
 		return nil, gerror.Wrap(err, "failed to query psyche profile dreams")
 	}
-	score, level, description := psycheIntegration(len(dreams))
+	score, level, insightKey, integrationSignals := psycheIntegration(dreams)
 	archetypes, dominant := psycheArchetypes(dreams, score)
 	profile := v1.GetPsycheProfileRes{
 		IntegrationScore:       score,
 		IntegrationLevel:       level,
-		IntegrationDescription: description,
+		IntegrationDescription: insightKey,
+		IntegrationInsightKey:  insightKey,
+		IntegrationSignals:     integrationSignals,
 		Archetypes:             archetypes,
 		DominantArchetype:      dominant,
 		UpdatedAt:              gtime.Now().Format("Y-m-d H:i:s"),
@@ -593,21 +596,60 @@ func isValidReminderTime(value string) bool {
 	return matched
 }
 
-func psycheIntegration(total int) (float64, string, string) {
+func psycheIntegration(dreams []psycheDreamRow) (float64, string, string, []v1.PsycheProfileSignal) {
+	total := len(dreams)
+	recentCount := recentPsycheDreamCount(dreams)
+	avgConfidence := averagePsycheConfidence(dreams)
+	repeatedSymbolCount := repeatedPsycheTokenCount(dreams, func(dream psycheDreamRow) string {
+		return dream.Symbols
+	})
+	repeatedTagCount := repeatedPsycheTokenCount(dreams, func(dream psycheDreamRow) string {
+		return dream.Tags
+	})
+
+	activityBonus := float64(recentCount) * 0.8
+	confidenceBonus := 0.0
+	if avgConfidence >= 0.9 {
+		confidenceBonus = 3
+	} else if avgConfidence >= 0.82 {
+		confidenceBonus = 1.5
+	}
+	repetitionBonus := float64(repeatedSymbolCount*2 + repeatedTagCount)
+	if repetitionBonus > 8 {
+		repetitionBonus = 8
+	}
+
+	var score float64
+	var level string
+	var insightKey string
 	switch {
 	case total == 0:
-		return 20, "low", "Record dreams to begin building a stable psyche profile."
+		score = 20
+		level = "low"
+		insightKey = "profileIntegrationInsightLow"
 	case total < 3:
-		return 35 + float64(total*7), "low", "Keep recording dreams to build a richer psyche profile."
+		score = 35 + float64(total*7) + confidenceBonus
+		level = "low"
+		insightKey = "profileIntegrationInsightLow"
 	case total < 10:
-		return 56 + float64(total-3)*4, "moderate", "Your recent dreams show emerging symbolic continuity and self-reflection."
+		score = 56 + float64(total-3)*4 + activityBonus + confidenceBonus + repetitionBonus
+		level = "moderate"
+		insightKey = "profileIntegrationInsightModerate"
 	default:
-		score := 84 + float64(total-10)
-		if score > 96 {
-			score = 96
-		}
-		return score, "high", "Your dream journal shows stable integration across recurring themes."
+		score = 84 + float64(total-10) + activityBonus + confidenceBonus + repetitionBonus
+		level = "high"
+		insightKey = "profileIntegrationInsightHigh"
 	}
+	if level == "low" && score > 55 {
+		score = 55
+	}
+	if level == "moderate" && score > 83 {
+		score = 83
+	}
+	if score > 96 {
+		score = 96
+	}
+	return score, level, insightKey, psycheIntegrationSignals(dreams, recentCount)
 }
 
 func psycheArchetypes(dreams []psycheDreamRow, integration float64) ([]v1.ArchetypeProfileItem, string) {
@@ -618,39 +660,43 @@ func psycheArchetypes(dreams []psycheDreamRow, integration float64) ([]v1.Archet
 		"anima":   38,
 		"sage":    44,
 	}
+	signals := map[string][]v1.PsycheProfileSignal{
+		"self":    {},
+		"persona": {},
+		"shadow":  {},
+		"anima":   {},
+		"sage":    {},
+	}
 	for _, dream := range dreams {
 		emotion := strings.ToLower(strings.TrimSpace(dream.Emotion))
 		switch emotion {
 		case "fear", "angry", "anxious", "sad":
 			scores["shadow"] += 4
+			addPsycheSignal(signals, "shadow", "emotion", emotion)
 		case "peaceful", "happy":
 			scores["self"] += 2
+			addPsycheSignal(signals, "self", "emotion", emotion)
 		case "confused":
 			scores["sage"] += 2
+			addPsycheSignal(signals, "sage", "emotion", emotion)
 		case "excited":
 			scores["persona"] += 2
+			addPsycheSignal(signals, "persona", "emotion", emotion)
 		}
-		for _, tag := range strings.Split(strings.ToLower(dream.Tags), ",") {
-			tag = strings.TrimSpace(tag)
-			switch {
-			case strings.Contains(tag, "work") || strings.Contains(tag, "社交") || strings.Contains(tag, "学校"):
-				scores["persona"] += 3
-			case strings.Contains(tag, "fear") || strings.Contains(tag, "dark") || strings.Contains(tag, "阴影"):
-				scores["shadow"] += 3
-			case strings.Contains(tag, "love") || strings.Contains(tag, "family") || strings.Contains(tag, "情感"):
-				scores["anima"] += 3
-			case strings.Contains(tag, "guide") || strings.Contains(tag, "teacher") || strings.Contains(tag, "智慧"):
-				scores["sage"] += 3
-			}
+		for _, symbol := range psycheTokens(dream.Symbols) {
+			applyPsycheArchetypeToken(scores, signals, "symbol", symbol, 4)
+		}
+		for _, tag := range psycheTokens(dream.Tags) {
+			applyPsycheArchetypeToken(scores, signals, "tag", tag, 3)
 		}
 	}
 
 	items := []v1.ArchetypeProfileItem{
-		{Type: "self", Name: "Self", Description: "Wholeness and inner alignment"},
-		{Type: "persona", Name: "Persona", Description: "Social identity and outward roles"},
-		{Type: "shadow", Name: "Shadow", Description: "Unintegrated emotions and avoided themes"},
-		{Type: "anima", Name: "Anima", Description: "Inner feeling and symbolic imagination"},
-		{Type: "sage", Name: "Sage", Description: "Guidance, insight, and meaning-making"},
+		{Type: "self", InsightKey: "profileArchetypeSelfInsight"},
+		{Type: "persona", InsightKey: "profileArchetypePersonaInsight"},
+		{Type: "shadow", InsightKey: "profileArchetypeShadowInsight"},
+		{Type: "anima", InsightKey: "profileArchetypeAnimaInsight"},
+		{Type: "sage", InsightKey: "profileArchetypeSageInsight"},
 	}
 	for i := range items {
 		score := scores[items[i].Type]
@@ -658,6 +704,7 @@ func psycheArchetypes(dreams []psycheDreamRow, integration float64) ([]v1.Archet
 			score = 99
 		}
 		items[i].Score = score
+		items[i].Signals = topPsycheSignals(signals[items[i].Type], 3)
 	}
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].Score == items[j].Score {
@@ -670,6 +717,153 @@ func psycheArchetypes(dreams []psycheDreamRow, integration float64) ([]v1.Archet
 		dominant = items[0].Type
 	}
 	return items, dominant
+}
+
+func recentPsycheDreamCount(dreams []psycheDreamRow) int {
+	cutoff := time.Now().AddDate(0, 0, -30).Format("2006-01-02 15:04:05")
+	count := 0
+	for _, dream := range dreams {
+		if dream.CreatedAt != nil && dream.CreatedAt.Format("Y-m-d H:i:s") >= cutoff {
+			count++
+		}
+	}
+	return count
+}
+
+func averagePsycheConfidence(dreams []psycheDreamRow) float64 {
+	if len(dreams) == 0 {
+		return 0
+	}
+	total := 0.0
+	for _, dream := range dreams {
+		total += dream.ConfidenceScore
+	}
+	return total / float64(len(dreams))
+}
+
+func repeatedPsycheTokenCount(dreams []psycheDreamRow, value func(psycheDreamRow) string) int {
+	counts := map[string]int{}
+	for _, dream := range dreams {
+		for _, token := range psycheTokens(value(dream)) {
+			counts[token]++
+		}
+	}
+	repeated := 0
+	for _, count := range counts {
+		if count > 1 {
+			repeated++
+		}
+	}
+	return repeated
+}
+
+func psycheIntegrationSignals(dreams []psycheDreamRow, recentCount int) []v1.PsycheProfileSignal {
+	signals := []v1.PsycheProfileSignal{
+		{Type: "dream_count", Value: "completed", Count: len(dreams)},
+	}
+	if recentCount > 0 {
+		signals = append(signals, v1.PsycheProfileSignal{Type: "recent_30_days", Value: "active", Count: recentCount})
+	}
+	signals = append(signals, topPsycheSignals(collectPsycheSignals(dreams, "emotion", func(dream psycheDreamRow) []string {
+		emotion := strings.ToLower(strings.TrimSpace(dream.Emotion))
+		if emotion == "" || emotion == "neutral" {
+			return nil
+		}
+		return []string{emotion}
+	}), 1)...)
+	signals = append(signals, topPsycheSignals(collectPsycheSignals(dreams, "symbol", func(dream psycheDreamRow) []string {
+		return psycheTokens(dream.Symbols)
+	}), 2)...)
+	signals = append(signals, topPsycheSignals(collectPsycheSignals(dreams, "tag", func(dream psycheDreamRow) []string {
+		return psycheTokens(dream.Tags)
+	}), 2)...)
+	return signals
+}
+
+func collectPsycheSignals(dreams []psycheDreamRow, signalType string, values func(psycheDreamRow) []string) []v1.PsycheProfileSignal {
+	counts := map[string]int{}
+	for _, dream := range dreams {
+		for _, value := range values(dream) {
+			counts[value]++
+		}
+	}
+	signals := make([]v1.PsycheProfileSignal, 0, len(counts))
+	for value, count := range counts {
+		signals = append(signals, v1.PsycheProfileSignal{Type: signalType, Value: value, Count: count})
+	}
+	return signals
+}
+
+func psycheTokens(value string) []string {
+	parts := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == '，' || r == ';' || r == '；' || r == '、'
+	})
+	tokens := make([]string, 0, len(parts))
+	seen := map[string]struct{}{}
+	for _, part := range parts {
+		token := strings.ToLower(strings.TrimSpace(part))
+		if token == "" {
+			continue
+		}
+		if _, ok := seen[token]; ok {
+			continue
+		}
+		seen[token] = struct{}{}
+		tokens = append(tokens, token)
+	}
+	return tokens
+}
+
+func applyPsycheArchetypeToken(scores map[string]float64, signals map[string][]v1.PsycheProfileSignal, signalType, token string, weight float64) {
+	switch {
+	case strings.Contains(token, "work") || strings.Contains(token, "school") || strings.Contains(token, "stage") || strings.Contains(token, "mask") || strings.Contains(token, "社交") || strings.Contains(token, "学校") || strings.Contains(token, "面具") || strings.Contains(token, "舞台"):
+		scores["persona"] += weight
+		addPsycheSignal(signals, "persona", signalType, token)
+	case strings.Contains(token, "fear") || strings.Contains(token, "dark") || strings.Contains(token, "shadow") || strings.Contains(token, "追赶") || strings.Contains(token, "深渊") || strings.Contains(token, "阴影") || strings.Contains(token, "黑暗"):
+		scores["shadow"] += weight
+		addPsycheSignal(signals, "shadow", signalType, token)
+	case strings.Contains(token, "love") || strings.Contains(token, "family") || strings.Contains(token, "water") || strings.Contains(token, "sea") || strings.Contains(token, "情感") || strings.Contains(token, "家人") || strings.Contains(token, "海") || strings.Contains(token, "水"):
+		scores["anima"] += weight
+		addPsycheSignal(signals, "anima", signalType, token)
+	case strings.Contains(token, "guide") || strings.Contains(token, "teacher") || strings.Contains(token, "book") || strings.Contains(token, "library") || strings.Contains(token, "智慧") || strings.Contains(token, "老师") || strings.Contains(token, "图书馆") || strings.Contains(token, "书"):
+		scores["sage"] += weight
+		addPsycheSignal(signals, "sage", signalType, token)
+	case strings.Contains(token, "light") || strings.Contains(token, "circle") || strings.Contains(token, "center") || strings.Contains(token, "光") || strings.Contains(token, "圆") || strings.Contains(token, "中心"):
+		scores["self"] += weight
+		addPsycheSignal(signals, "self", signalType, token)
+	}
+}
+
+func addPsycheSignal(signals map[string][]v1.PsycheProfileSignal, archetype, signalType, value string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return
+	}
+	next := signals[archetype]
+	for i := range next {
+		if next[i].Type == signalType && next[i].Value == value {
+			next[i].Count++
+			signals[archetype] = next
+			return
+		}
+	}
+	signals[archetype] = append(next, v1.PsycheProfileSignal{Type: signalType, Value: value, Count: 1})
+}
+
+func topPsycheSignals(signals []v1.PsycheProfileSignal, limit int) []v1.PsycheProfileSignal {
+	sort.SliceStable(signals, func(i, j int) bool {
+		if signals[i].Count == signals[j].Count {
+			if signals[i].Type == signals[j].Type {
+				return signals[i].Value < signals[j].Value
+			}
+			return signals[i].Type < signals[j].Type
+		}
+		return signals[i].Count > signals[j].Count
+	})
+	if len(signals) > limit {
+		return signals[:limit]
+	}
+	return signals
 }
 
 // findOrCreateUser Find or create user

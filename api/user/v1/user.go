@@ -92,16 +92,26 @@ type PsycheProfile struct {
 	IntegrationScore       float64                `json:"integrationScore" dc:"Profile integration score"`
 	IntegrationLevel       string                 `json:"integrationLevel" dc:"Profile integration level"`
 	IntegrationDescription string                 `json:"integrationDescription" dc:"Profile integration description"`
+	IntegrationInsightKey  string                 `json:"integrationInsightKey" dc:"Profile integration insight locale key"`
+	IntegrationSignals     []PsycheProfileSignal  `json:"integrationSignals" dc:"Signals contributing to integration score"`
 	Archetypes             []ArchetypeProfileItem `json:"archetypes" dc:"Archetype profile"`
 	DominantArchetype      string                 `json:"dominantArchetype" dc:"Dominant archetype"`
 	UpdatedAt              string                 `json:"updatedAt" dc:"Last update time"`
 }
 
 type ArchetypeProfileItem struct {
-	Type        string  `json:"type"`
-	Name        string  `json:"name"`
-	Score       float64 `json:"score"`
-	Description string  `json:"description"`
+	Type        string                `json:"type"`
+	Name        string                `json:"name"`
+	Score       float64               `json:"score"`
+	Description string                `json:"description"`
+	InsightKey  string                `json:"insightKey"`
+	Signals     []PsycheProfileSignal `json:"signals"`
+}
+
+type PsycheProfileSignal struct {
+	Type  string `json:"type"`
+	Value string `json:"value"`
+	Count int    `json:"count"`
 }
 
 type GetPsycheProfileRes = PsycheProfile
