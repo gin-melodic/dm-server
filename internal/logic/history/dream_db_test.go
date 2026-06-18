@@ -18,13 +18,18 @@ import (
 )
 
 type fakeDreamStream struct {
-	chunks []string
-	err    error
+	chunks      []string
+	err         error
+	emotionTags *[]string
 }
 
 func (f fakeDreamStream) StreamDream(ctx context.Context, content string) (<-chan string, error) {
 	if f.err != nil {
 		return nil, f.err
+	}
+	if f.emotionTags != nil {
+		tags, _ := ctx.Value(consts.CtxDreamEmotionTags).([]string)
+		*f.emotionTags = append((*f.emotionTags)[:0], tags...)
 	}
 	ch := make(chan string, len(f.chunks))
 	go func() {
@@ -51,7 +56,11 @@ func TestHistoryLogicDatabaseFlow(t *testing.T) {
 	userCtx := context.WithValue(ctx, consts.CtxUserId, userID)
 	svc := New()
 
-	service.RegisterDream(fakeDreamStream{chunks: []string{"# 「清晨之门」\n\n", "## 综合小结\n醒来后感觉轻松。"}})
+	var observedEmotionTags []string
+	service.RegisterDream(fakeDreamStream{
+		chunks:      []string{"# 「清晨之门」\n\n", "## 综合小结\n醒来后感觉轻松。"},
+		emotionTags: &observedEmotionTags,
+	})
 	analyzeRes, err := svc.CreateDreamAnalysis(userCtx, &v1.CreateDreamAnalysisReq{
 		Content: "我梦见自己穿过一扇发光的门",
 		Emotion: "peaceful",
@@ -65,6 +74,9 @@ func TestHistoryLogicDatabaseFlow(t *testing.T) {
 	}
 	if analyzeRes.Analysis.Locale != "en-US" || analyzeRes.Dream.Emotion != "peaceful" {
 		t.Fatalf("unexpected analysis result: %#v", analyzeRes)
+	}
+	if len(observedEmotionTags) != 1 || observedEmotionTags[0] != "peaceful" {
+		t.Fatalf("expected emotion tag to be forwarded, got %#v", observedEmotionTags)
 	}
 
 	detail, err := svc.GetDream(userCtx, &v1.GetDreamReq{Id: analyzeRes.Dream.Id})

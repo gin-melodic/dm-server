@@ -88,14 +88,28 @@ func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan string
 			return
 		}
 
-		// TODO: Search for similar dreams to reduce LLM calls
-		// TODO: If similar dreams are found, also simulate streaming output
+		userIdStr := fmt.Sprintf("%v", userid)
+		emotionTags := dreamEmotionTagsFromContext(ctx)
 
-		// Search for relevant knowledge
-		kw, err := shareKnowledge.search(ctx, content)
+		// Try the L1-aware knowledge interpretation API first. A cache hit can answer without LLM.
+		interpretResp, err := shareKnowledge.interpretDream(ctx, content, userIdStr, emotionTags)
 		if err != nil {
-			// If knowledge base search fails, it should not cause the entire analysis process to fail, just log it
-			glog.Warningf(ctx, "知识库搜索失败: %v", err)
+			glog.Warningf(ctx, "知识库L1解析失败: %v", err)
+		}
+		if interpretResp != nil && interpretResp.isL1Hit() {
+			glog.Infof(ctx, "知识库L1缓存命中: symbols=%v matched=%v", interpretResp.Data.SymbolsDetected, interpretResp.Data.SymbolsMatched)
+			ch <- interpretResp.Data.Interpretation
+			return
+		}
+
+		kw := interpretResp.toSearchResponse()
+		if kw == nil {
+			// Fall back to the legacy search endpoint for older knowledge-service deployments.
+			kw, err = shareKnowledge.search(ctx, content)
+			if err != nil {
+				// If knowledge base search fails, it should not cause the entire analysis process to fail, just log it
+				glog.Warningf(ctx, "知识库搜索失败: %v", err)
+			}
 		}
 
 		// 3. Format knowledge base content
@@ -158,6 +172,33 @@ func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan string
 	}()
 
 	return ch, nil
+}
+
+func dreamEmotionTagsFromContext(ctx context.Context) []string {
+	value := ctx.Value(consts.CtxDreamEmotionTags)
+	switch tags := value.(type) {
+	case []string:
+		return filterEmotionTags(tags...)
+	case string:
+		return filterEmotionTags(tags)
+	default:
+		return nil
+	}
+}
+
+func filterEmotionTags(tags ...string) []string {
+	filtered := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+		filtered = append(filtered, tag)
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	return filtered
 }
 
 // Clean text and extract title from text

@@ -10,9 +10,10 @@ type CtxUser struct {
 }
 
 const (
-	CtxUserId      ContextKey = "userId"
-	CtxOpenId      ContextKey = "openId"
-	CtxSupabaseUid ContextKey = "supabaseUid"
+	CtxUserId           ContextKey = "userId"
+	CtxOpenId           ContextKey = "openId"
+	CtxSupabaseUid      ContextKey = "supabaseUid"
+	CtxDreamEmotionTags ContextKey = "dreamEmotionTags"
 )
 
 const (

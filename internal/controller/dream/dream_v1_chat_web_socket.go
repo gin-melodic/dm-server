@@ -109,8 +109,13 @@ func (c *ControllerV1) chatWebSocket(ctx context.Context, req *v1.ChatWebSocketR
 				continue
 			}
 
+			streamCtx := wsCtx
+			if emotion := strings.TrimSpace(in.Emotion); emotion != "" {
+				streamCtx = context.WithValue(streamCtx, consts.CtxDreamEmotionTags, []string{emotion})
+			}
+
 			// Call Service: begin LLM streaming processing
-			stream, err := service.Dream().StreamDream(wsCtx, in.DreamContent)
+			stream, err := service.Dream().StreamDream(streamCtx, in.DreamContent)
 			if err != nil {
 				writeWsError(conn, wsMsg.mt, "service error: "+err.Error())
 				continue

@@ -278,7 +278,8 @@ func (s *sHistory) CreateDreamAnalysis(ctx context.Context, req *v1.CreateDreamA
 		return nil, err
 	}
 
-	ch, err := service.Dream().StreamDream(ctx, req.Content)
+	streamCtx := context.WithValue(ctx, consts.CtxDreamEmotionTags, filterHistoryEmotionTags(emotion))
+	ch, err := service.Dream().StreamDream(streamCtx, req.Content)
 	if err != nil {
 		_ = updateAnalysisLifecycle(ctx, dreamID, sessionID, dreamStatusError, 100, err.Error())
 		return nil, err
@@ -671,6 +672,14 @@ func validateDreamContent(content string) error {
 func isAllowedDreamEmotion(emotion string) bool {
 	_, ok := allowedDreamEmotions[strings.ToLower(strings.TrimSpace(emotion))]
 	return ok
+}
+
+func filterHistoryEmotionTags(emotion string) []string {
+	emotion = strings.TrimSpace(emotion)
+	if emotion == "" {
+		return nil
+	}
+	return []string{emotion}
 }
 
 func normalizeLocale(locale string) string {
