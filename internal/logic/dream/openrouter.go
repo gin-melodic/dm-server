@@ -65,7 +65,7 @@ func (s *sOpenRouter) analyzeDreamStream(ctx context.Context, prompt, dreamConte
 
 	// Construct full prompt (sent to LLM, keep in Chinese for the model)
 	fullPrompt := fmt.Sprintf("%s\n\n用户梦境内容：\n%s", prompt, dreamContent)
-	glog.Infof(ctx, "Prompt: %s", fullPrompt)
+	glog.Infof(ctx, "Prompt: %s", previewRunes(fullPrompt, 100))
 	glog.Debugf(ctx, "Full request URL: %s", apiUrl)
 
 	// Construct request

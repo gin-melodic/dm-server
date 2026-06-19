@@ -21,14 +21,14 @@ var shareOllama = &sOllama{}
 
 // sOllamaRequest represents the request structure for Ollama API
 type sOllamaRequest struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
-	Stream bool   `json:"stream"`
+	Model   string `json:"model"`
+	Prompt  string `json:"prompt"`
+	Stream  bool   `json:"stream"`
 	Options struct {
-		Temperature      float64 `json:"temperature,omitempty"`
-		MaxTokens        int     `json:"num_predict,omitempty"`
-		TopP             float64 `json:"top_p,omitempty"`
-		FrequencyPenalty float64 `json:"repeat_penalty,omitempty"`
+		Temperature      float64  `json:"temperature,omitempty"`
+		MaxTokens        int      `json:"num_predict,omitempty"`
+		TopP             float64  `json:"top_p,omitempty"`
+		FrequencyPenalty float64  `json:"repeat_penalty,omitempty"`
 		Stop             []string `json:"stop,omitempty"`
 	} `json:"options,omitempty"`
 }
@@ -61,7 +61,7 @@ func (s *sOllama) analyzeDreamStream(ctx context.Context, prompt, dreamContent s
 
 	// Construct full prompt (sent to LLM, keep in Chinese for the model)
 	fullPrompt := fmt.Sprintf("%s\n\n用户的梦境内容如下：\n%s", prompt, dreamContent)
-	glog.Infof(ctx, "Prompt: %s", fullPrompt)
+	glog.Infof(ctx, "Prompt: %s", previewRunes(fullPrompt, 100))
 
 	// Construct request
 	request := sOllamaRequest{
@@ -69,7 +69,7 @@ func (s *sOllama) analyzeDreamStream(ctx context.Context, prompt, dreamContent s
 		Prompt: fullPrompt,
 		Stream: true,
 	}
-	
+
 	// Set model parameters to prevent overthinking
 	request.Options.Temperature = 0.7
 	request.Options.MaxTokens = 2048 // Limit max output tokens

@@ -59,7 +59,7 @@ func (s *sHunyuan) analyzeDreamStream(ctx context.Context, prompt, dreamContent 
 
 	// Construct the complete prompt
 	fullPrompt := fmt.Sprintf("%s\n\n用户的梦境内容如下：\n%s", prompt, dreamContent)
-	glog.Infof(ctx, "Prompt: %s", fullPrompt[:min(100, len(fullPrompt))]+"...")
+	glog.Infof(ctx, "Prompt: %s", previewRunes(fullPrompt, 100))
 
 	// Use Tencent Cloud SDK
 	credential := common.NewCredential(secretID, secretKey)

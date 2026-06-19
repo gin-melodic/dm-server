@@ -194,7 +194,7 @@ func TestHistoryLogicDatabaseFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDreamHome failed: %v", err)
 	}
-	if home.TotalDreams == 0 || home.Recommendation == nil || len(home.EmotionWaves) == 0 {
+	if home.TotalDreams == 0 || home.Recommendation == nil || len(home.RecentDreams) == 0 {
 		t.Fatalf("unexpected home result: %#v", home)
 	}
 	today, err := svc.GetTodayDreamRecommendation(userCtx, &v1.GetTodayDreamRecommendationReq{})

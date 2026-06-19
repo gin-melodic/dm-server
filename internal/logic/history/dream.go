@@ -64,7 +64,7 @@ const (
 	analysisConfidence     = 0.88
 	maxDreamTitleRunes     = 128
 	maxDreamContentRunes   = 10000
-	homeRecentLimit        = 5
+	homeRecentLimit        = 30
 	homeWaveDays           = 30
 )
 

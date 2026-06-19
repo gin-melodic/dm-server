@@ -103,8 +103,8 @@ func (s *sQwen) analyzeDreamStream(ctx context.Context, prompt, dreamContent str
 
 	// Construct the complete prompt
 	// Take the first 20 characters for printing
-	fullPrompt := fmt.Sprintf("%s\n\n用户梦境内容：\n%s", prompt[:20], dreamContent[:20])
-	glog.Infof(ctx, "Prompt: %s", fullPrompt[:20])
+	fullPrompt := fmt.Sprintf("%s\n\n用户梦境内容：\n%s", previewRunes(prompt, 20), previewRunes(dreamContent, 20))
+	glog.Infof(ctx, "Prompt: %s", previewRunes(fullPrompt, 20))
 	glog.Debugf(ctx, "Full request URL: %s", apiUrl)
 
 	// Construct the request
