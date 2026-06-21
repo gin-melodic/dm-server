@@ -1,7 +1,6 @@
 package dream
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -10,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"dm-server/internal/model"
 
 	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/frame/g"
@@ -74,16 +75,25 @@ type sQwenResponse struct {
 }
 
 // analyzeDreamStream Use Alibaba Cloud (Qwen) to analyze dreams
-func (s *sQwen) analyzeDreamStream(ctx context.Context, prompt, dreamContent string) (<-chan string, error) {
+func (s *sQwen) analyzeDreamStream(ctx context.Context, prompt, dreamContent string) (<-chan model.DreamStreamEvent, error) {
 	// Get Alibaba Cloud configuration
 	qwenConfig, err := g.Cfg().Get(ctx, "qwen")
 	if err != nil {
 		return nil, gerror.Wrap(err, "Failed to get Alibaba Cloud configuration")
 	}
 
-	baseURL := qwenConfig.MapStrStr()["base_url"]
-	model := configuredModel(ctx, qwenConfig.MapStrStr()["model"], "qwen3.6-flash")
-	apiKey := qwenConfig.MapStrStr()["api_key"]
+	config := qwenConfig.MapStrStr()
+	baseURL := config["base_url"]
+	modelName := configuredModel(ctx, config["model"], "qwen3.6-flash")
+	apiKey := config["api_key"]
+	timeouts := providerTimeouts(config)
+	requestCtx, cancel := context.WithTimeout(ctx, timeouts.Generation)
+	streamOwnsCancel := false
+	defer func() {
+		if !streamOwnsCancel {
+			cancel()
+		}
+	}()
 
 	// Set default values
 	if baseURL == "" {
@@ -94,7 +104,7 @@ func (s *sQwen) analyzeDreamStream(ctx context.Context, prompt, dreamContent str
 
 	// Print the config
 	glog.Infof(ctx, "Base URL: %s", baseURL)
-	glog.Infof(ctx, "Model: %s", model)
+	glog.Infof(ctx, "Model: %s", modelName)
 	glog.Debugf(ctx, "API Key is empty: %t", apiKey == "")
 
 	// Construct the complete prompt
@@ -105,7 +115,7 @@ func (s *sQwen) analyzeDreamStream(ctx context.Context, prompt, dreamContent str
 
 	// Construct the request
 	request := sQwenRequest{
-		Model:  model,
+		Model:  modelName,
 		Stream: true,
 		Messages: []sMessages{
 			{
@@ -118,8 +128,9 @@ func (s *sQwen) analyzeDreamStream(ctx context.Context, prompt, dreamContent str
 			},
 		},
 		Temperature:    0.95,
-		EnableThinking: true,
-		ThinkingBudget: 4096,
+		MaxTokens:      positiveInt(config["max_tokens"], 4096),
+		EnableThinking: configuredBool(config["enable_thinking"], true),
+		ThinkingBudget: positiveInt(config["thinking_budget"], 4096),
 	}
 
 	// Convert request to JSON
@@ -138,7 +149,7 @@ func (s *sQwen) analyzeDreamStream(ctx context.Context, prompt, dreamContent str
 		glog.Debugf(ctx, "Attempt %d (max retries: %d)", attempt, maxRetries)
 
 		// Use http.NewRequest + WithContext(ctx)
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, apiUrl, bytes.NewReader(requestBody))
+		httpReq, err := http.NewRequestWithContext(requestCtx, http.MethodPost, apiUrl, bytes.NewReader(requestBody))
 		if err != nil {
 			glog.Debugf(ctx, "Failed to create HTTP request: %v", err)
 			return nil, gerror.Wrap(err, "Failed to build HTTP request")
@@ -152,7 +163,7 @@ func (s *sQwen) analyzeDreamStream(ctx context.Context, prompt, dreamContent str
 		glog.Debugf(ctx, "Request header Authorization set: %t", apiKey != "")
 
 		// Send the HTTP request
-		resp, err := http.DefaultClient.Do(httpReq)
+		resp, err := streamingHTTPClient(timeouts).Do(httpReq)
 		if err != nil {
 			// Check if the error is caused by context cancellation
 			if errors.Is(err, context.Canceled) {
@@ -194,111 +205,8 @@ func (s *sQwen) analyzeDreamStream(ctx context.Context, prompt, dreamContent str
 			return nil, gerror.Newf("API returned error status code %d: %s", resp.StatusCode, string(body))
 		}
 
-		// Create a channel for returning
-		resultChan := make(chan string, 10)
-
-		// Start a goroutine to read the streaming response
-		go func() {
-			defer close(resultChan)
-			defer resp.Body.Close()
-
-			reader := bufio.NewScanner(resp.Body)
-			// Adjust buffer to avoid large lines being truncated
-			buf := make([]byte, 0, 64*1024)
-			reader.Buffer(buf, 1024*1024)
-
-			glog.Debugf(ctx, "Started reading response stream")
-
-			for {
-				select {
-				case <-ctx.Done():
-					// Cancellation triggered: exit directly, HTTP client will break the underlying connection
-					glog.Debugf(ctx, "Context cancelled during streaming read")
-					return
-				default:
-					if !reader.Scan() {
-						// EOF or error
-						if err := reader.Err(); err != nil {
-							glog.Debugf(ctx, "Error reading response stream: %v", err)
-							resultChan <- "[error]读取响应出错"
-						} else {
-							glog.Debugf(ctx, "Response stream read complete (EOF)")
-						}
-						return
-					}
-
-					line := reader.Text()
-					// Skip empty lines
-					if line == "" {
-						continue
-					}
-
-					// Skip non-data lines (like "event: completion")
-					if !bytes.HasPrefix([]byte(line), []byte("data: ")) {
-						glog.Debugf(ctx, "Skipping non-data line: %s", line)
-						continue
-					}
-
-					// Extract JSON from data line
-					jsonData := line[6:] // Skip "data: " prefix
-					// glog.Debugf(ctx, "Received data line: %s", jsonData)
-
-					// Check for end marker
-					if jsonData == "[DONE]" {
-						glog.Debugf(ctx, "Received end marker [DONE]")
-						return
-					}
-
-					var response sQwenResponse
-					if err := json.Unmarshal([]byte(jsonData), &response); err != nil {
-						glog.Debugf(ctx, "JSON parse failed: %v, data: %s", err, jsonData)
-						continue
-					}
-
-					// Send response content to the result channel
-					if len(response.Choices) > 0 {
-						choice := response.Choices[0]
-						content := choice.Message.Content
-						if content == "" {
-							content = choice.Delta.Content
-						}
-						if content != "" {
-							// glog.Debugf(ctx, "Send content to channel: %s", content)
-							resultChan <- content
-						}
-
-						// Handle finish reason
-						if choice.FinishReason != "" && choice.FinishReason != "null" {
-							glog.Debugf(ctx, "Received finish reason: %s", choice.FinishReason)
-
-							// Handle different finish reasons
-							switch choice.FinishReason {
-							case "length":
-								// Content length limit
-								glog.Debugf(ctx, "Model reached maximum length limit, sending truncation warning")
-								resultChan <- "[warning]由于内容长度限制，生成的内容可能不完整。如需完整分析，请尝试提供更短的梦境描述。"
-							case "stop":
-								// Normal completion
-								glog.Debugf(ctx, "Model completed generation normally")
-							case "content_filter":
-								// Content filtering
-								glog.Warningf(ctx, "Generated content contains filtered content")
-								resultChan <- "[warning]生成内容包含不合适的内容，已被过滤。"
-							default:
-								// Other unknown reasons
-								glog.Debugf(ctx, "Unknown finish reason: %s", choice.FinishReason)
-								resultChan <- fmt.Sprintf("[info]模型完成生成，原因: %s", choice.FinishReason)
-							}
-
-							glog.Info(ctx, "Model completed generation")
-							return
-						}
-					}
-				}
-			}
-		}()
-
-		return resultChan, nil
+		streamOwnsCancel = true
+		return streamOpenAIResponse(requestCtx, resp, "qwen", modelName, timeouts.Idle, cancel), nil
 	}
 
 	return nil, gerror.New("Tencent Hunyuan API call failed, maximum retry attempts reached")

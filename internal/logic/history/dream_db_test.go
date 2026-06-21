@@ -9,6 +9,7 @@ import (
 
 	v1 "dm-server/api/history/v1"
 	"dm-server/internal/consts"
+	"dm-server/internal/model"
 	"dm-server/internal/service"
 
 	_ "github.com/gogf/gf/contrib/drivers/pgsql/v2"
@@ -48,7 +49,7 @@ func (f fakeDreamStream) SinkDreamSymbolCache(ctx context.Context, userId string
 	return nil
 }
 
-func (f fakeDreamStream) StreamDream(ctx context.Context, content string) (<-chan string, error) {
+func (f fakeDreamStream) StreamDream(ctx context.Context, content string) (<-chan model.DreamStreamEvent, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -56,12 +57,13 @@ func (f fakeDreamStream) StreamDream(ctx context.Context, content string) (<-cha
 		tags, _ := ctx.Value(consts.CtxDreamEmotionTags).([]string)
 		*f.emotionTags = append((*f.emotionTags)[:0], tags...)
 	}
-	ch := make(chan string, len(f.chunks))
+	ch := make(chan model.DreamStreamEvent, len(f.chunks)+1)
 	go func() {
 		defer close(ch)
 		for _, chunk := range f.chunks {
-			ch <- chunk
+			ch <- model.DreamStreamEvent{Type: model.DreamStreamEventDelta, Content: chunk}
 		}
+		ch <- model.DreamStreamEvent{Type: model.DreamStreamEventCompleted, FinishReason: "stop"}
 	}()
 	return ch, nil
 }

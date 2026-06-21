@@ -19,6 +19,7 @@ import (
 
 	v1 "dm-server/api/history/v1"
 	"dm-server/internal/consts"
+	"dm-server/internal/model"
 	"dm-server/internal/model/entity"
 	"dm-server/internal/service"
 )
@@ -328,20 +329,40 @@ func (s *sHistory) CreateDreamAnalysis(ctx context.Context, req *v1.CreateDreamA
 	streamCtx = context.WithValue(streamCtx, consts.CtxDreamStreamMetadata, streamMetadata)
 	ch, err := service.Dream().StreamDream(streamCtx, req.Content)
 	if err != nil {
-		_ = updateAnalysisLifecycle(ctx, dreamID, sessionID, dreamStatusError, 100, err.Error())
+		updateAnalysisErrorDetached(ctx, dreamID, sessionID, err.Error())
 		return nil, err
 	}
 	var builder strings.Builder
-	for piece := range ch {
-		if strings.HasPrefix(piece, "[error]") {
-			msg := strings.TrimSpace(strings.TrimPrefix(piece, "[error]"))
-			_ = updateAnalysisLifecycle(ctx, dreamID, sessionID, dreamStatusError, 100, msg)
+	completed := false
+	for event := range ch {
+		switch event.Type {
+		case model.DreamStreamEventDelta:
+			builder.WriteString(event.Content)
+		case model.DreamStreamEventWarning:
+			glog.Warningf(ctx, "梦境分析流警告: reason=%s message=%s", event.FinishReason, event.Message)
+		case model.DreamStreamEventCompleted:
+			completed = true
+		case model.DreamStreamEventError:
+			msg := strings.TrimSpace(event.Message)
+			if msg == "" {
+				msg = "dream analysis stream failed"
+			}
+			updateAnalysisErrorDetached(ctx, dreamID, sessionID, msg)
 			return nil, gerror.New(msg)
 		}
-		builder.WriteString(piece)
+	}
+	if !completed {
+		msg := "dream analysis stream closed without completion"
+		updateAnalysisErrorDetached(ctx, dreamID, sessionID, msg)
+		return nil, gerror.New(msg)
 	}
 	analysisText := builder.String()
 	title, interpretation := extractAnalysisTitleAndBody(analysisText)
+	if strings.TrimSpace(interpretation) == "" {
+		msg := "dream analysis completed with empty content"
+		updateAnalysisErrorDetached(ctx, dreamID, sessionID, msg)
+		return nil, gerror.New(msg)
+	}
 	keywords := deriveDreamKeywords(req.Content, interpretation, emotion)
 	finalSymbols := normalizeDreamSymbols(streamMetadata.SymbolsDetected)
 	err = g.DB().Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
@@ -373,7 +394,7 @@ func (s *sHistory) CreateDreamAnalysis(ctx context.Context, req *v1.CreateDreamA
 		return nil
 	})
 	if err != nil {
-		_ = updateAnalysisLifecycle(ctx, dreamID, sessionID, dreamStatusError, 100, err.Error())
+		updateAnalysisErrorDetached(ctx, dreamID, sessionID, err.Error())
 		return nil, err
 	}
 	if streamMetadata.InferenceLevel != "L1" && len(finalSymbols) > 0 {
@@ -794,6 +815,14 @@ func updateAnalysisLifecycle(ctx context.Context, dreamID, sessionID uint64, sta
 		}
 		return nil
 	})
+}
+
+func updateAnalysisErrorDetached(ctx context.Context, dreamID, sessionID uint64, message string) {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := updateAnalysisLifecycle(cleanupCtx, dreamID, sessionID, dreamStatusError, 100, message); err != nil {
+		glog.Errorf(cleanupCtx, "failed to persist dream analysis error state: %v", err)
+	}
 }
 
 func extractAnalysisTitleAndBody(text string) (string, string) {

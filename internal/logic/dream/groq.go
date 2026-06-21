@@ -1,7 +1,6 @@
 package dream
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -10,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"dm-server/internal/model"
 
 	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/frame/g"
@@ -43,15 +44,24 @@ type sGroqRequest struct {
 }
 
 // analyzeDreamStream Use Groq to analyze dream.
-func (s *sGroq) analyzeDreamStream(ctx context.Context, prompt, dreamContent string) (<-chan string, error) {
+func (s *sGroq) analyzeDreamStream(ctx context.Context, prompt, dreamContent string) (<-chan model.DreamStreamEvent, error) {
 	groqConfig, err := g.Cfg().Get(ctx, "groq")
 	if err != nil {
 		return nil, gerror.Wrap(err, "获取 Groq 配置失败")
 	}
 
-	baseURL := groqConfig.MapStrStr()["base_url"]
-	model := configuredModel(ctx, groqConfig.MapStrStr()["model"], "qwen/qwen3-32b")
-	apiKey := groqConfig.MapStrStr()["api_key"]
+	config := groqConfig.MapStrStr()
+	baseURL := config["base_url"]
+	modelName := configuredModel(ctx, config["model"], "qwen/qwen3-32b")
+	apiKey := config["api_key"]
+	timeouts := providerTimeouts(config)
+	requestCtx, cancel := context.WithTimeout(ctx, timeouts.Generation)
+	streamOwnsCancel := false
+	defer func() {
+		if !streamOwnsCancel {
+			cancel()
+		}
+	}()
 
 	if baseURL == "" {
 		baseURL = "https://api.groq.com/openai/v1"
@@ -59,7 +69,7 @@ func (s *sGroq) analyzeDreamStream(ctx context.Context, prompt, dreamContent str
 	apiURL := fmt.Sprintf("%s/chat/completions", baseURL)
 
 	glog.Infof(ctx, "Base URL: %s", baseURL)
-	glog.Infof(ctx, "Model: %s", model)
+	glog.Infof(ctx, "Model: %s", modelName)
 	glog.Debugf(ctx, "API Key is empty: %t", apiKey == "")
 
 	fullPrompt := fmt.Sprintf("%s\n\n用户梦境内容：\n%s", prompt, dreamContent)
@@ -67,7 +77,7 @@ func (s *sGroq) analyzeDreamStream(ctx context.Context, prompt, dreamContent str
 	glog.Debugf(ctx, "Full request URL: %s", apiURL)
 
 	request := sGroqRequest{
-		Model: model,
+		Model: modelName,
 		Messages: []struct {
 			Role    string `json:"role"`
 			Content string `json:"content"`
@@ -78,7 +88,7 @@ func (s *sGroq) analyzeDreamStream(ctx context.Context, prompt, dreamContent str
 			},
 		},
 		Stream:           true,
-		MaxTokens:        4096,
+		MaxTokens:        positiveInt(config["max_tokens"], 4096),
 		Temperature:      0.7,
 		TopP:             0.9,
 		FrequencyPenalty: 1.05,
@@ -98,7 +108,7 @@ func (s *sGroq) analyzeDreamStream(ctx context.Context, prompt, dreamContent str
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		glog.Debugf(ctx, "Attempt %d (max retries: %d)", attempt, maxRetries)
 
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(requestBody))
+		httpReq, err := http.NewRequestWithContext(requestCtx, http.MethodPost, apiURL, bytes.NewReader(requestBody))
 		if err != nil {
 			glog.Debugf(ctx, "Failed to create HTTP request: %v", err)
 			return nil, gerror.Wrap(err, "创建 Groq HTTP 请求失败")
@@ -109,7 +119,7 @@ func (s *sGroq) analyzeDreamStream(ctx context.Context, prompt, dreamContent str
 		glog.Debugf(ctx, "Request Header Content-Type: %s", httpReq.Header.Get("Content-Type"))
 		glog.Debugf(ctx, "Request Header Authorization is set: %t", apiKey != "")
 
-		resp, err := http.DefaultClient.Do(httpReq)
+		resp, err := streamingHTTPClient(timeouts).Do(httpReq)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				glog.Debugf(ctx, "Request was cancelled by context: %v", err)
@@ -148,95 +158,8 @@ func (s *sGroq) analyzeDreamStream(ctx context.Context, prompt, dreamContent str
 
 		glog.Debugf(ctx, "Groq remaining tokens this minute: %s", resp.Header.Get("x-ratelimit-remaining-tokens"))
 
-		ch := make(chan string)
-		go func() {
-			defer resp.Body.Close()
-			defer close(ch)
-
-			reader := bufio.NewScanner(resp.Body)
-			buf := make([]byte, 0, 64*1024)
-			reader.Buffer(buf, 1024*1024)
-
-			glog.Debugf(ctx, "Start reading response stream")
-
-			for {
-				select {
-				case <-ctx.Done():
-					glog.Debugf(ctx, "Context cancelled during streaming read")
-					return
-				default:
-					if !reader.Scan() {
-						if err := reader.Err(); err != nil {
-							glog.Debugf(ctx, "Error reading response stream: %v", err)
-						} else {
-							glog.Debugf(ctx, "Response stream reading complete (EOF)")
-						}
-						return
-					}
-
-					line := reader.Text()
-					if line == "" {
-						continue
-					}
-					if !bytes.HasPrefix([]byte(line), []byte("data: ")) {
-						glog.Debugf(ctx, "Skipping non-data line: %s", line)
-						continue
-					}
-
-					jsonData := line[6:]
-					if jsonData == "[DONE]" {
-						glog.Debugf(ctx, "Received stream end marker [DONE]")
-						return
-					}
-
-					var result struct {
-						Choices []struct {
-							Delta struct {
-								Content string `json:"content"`
-							} `json:"delta"`
-							FinishReason string `json:"finish_reason"`
-						} `json:"choices"`
-						Error *struct {
-							Message string `json:"message"`
-							Code    string `json:"code"`
-						} `json:"error,omitempty"`
-					}
-
-					if err := json.Unmarshal([]byte(jsonData), &result); err != nil {
-						glog.Debugf(ctx, "JSON parsing failed: %v, data: %s", err, jsonData)
-						continue
-					}
-
-					if result.Error != nil {
-						glog.Debugf(ctx, "API returned error: Code=%s, Message=%s", result.Error.Code, result.Error.Message)
-						if result.Error.Code == "rate_limit_exceeded" {
-							glog.Warningf(ctx, "Groq 返回速率限制错误：%s", result.Error.Message)
-						}
-						ch <- "[error]" + result.Error.Message
-						return
-					}
-
-					if len(result.Choices) == 0 {
-						continue
-					}
-
-					choice := result.Choices[0]
-					if choice.Delta.Content != "" {
-						ch <- choice.Delta.Content
-					}
-
-					if choice.FinishReason != "" && choice.FinishReason != "none" && choice.FinishReason != "null" {
-						glog.Debugf(ctx, "Received finish reason: %s", choice.FinishReason)
-						if choice.FinishReason == "length" {
-							glog.Debugf(ctx, "Model reached maximum length limit, sending truncation warning")
-							ch <- "[warning]由于内容长度限制，生成的内容可能不完整。如需完整分析，请尝试提供更短的梦境描述。"
-						}
-						return
-					}
-				}
-			}
-		}()
-		return ch, nil
+		streamOwnsCancel = true
+		return streamOpenAIResponse(requestCtx, resp, "groq", modelName, timeouts.Idle, cancel), nil
 	}
 
 	return nil, gerror.New("Groq API 调用失败，已达到最大重试次数")

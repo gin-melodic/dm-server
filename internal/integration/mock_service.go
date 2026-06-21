@@ -565,8 +565,10 @@ func (m *MockService) CreateDreamAnalysis(ctx context.Context, req *v1History.Cr
 		return nil, err
 	}
 	var builder strings.Builder
-	for piece := range ch {
-		builder.WriteString(piece)
+	for event := range ch {
+		if event.Type == model.DreamStreamEventDelta {
+			builder.WriteString(event.Content)
+		}
 	}
 	id := m.nextDreamID - 1
 	record, err := m.mockDreamRecord(id)
@@ -651,7 +653,7 @@ func (m *MockService) SinkDreamSymbolCache(ctx context.Context, userId string, s
 	return nil
 }
 
-func (m *MockService) StreamDream(ctx context.Context, content string) (<-chan string, error) {
+func (m *MockService) StreamDream(ctx context.Context, content string) (<-chan model.DreamStreamEvent, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -659,7 +661,7 @@ func (m *MockService) StreamDream(ctx context.Context, content string) (<-chan s
 		return nil, gerror.New("AI analysis engine overloaded")
 	}
 
-	ch := make(chan string, 5)
+	ch := make(chan model.DreamStreamEvent, 5)
 
 	// Save dream summary and result mock
 	dreamID := m.nextDreamID
@@ -714,9 +716,10 @@ func (m *MockService) StreamDream(ctx context.Context, content string) (<-chan s
 				// Instantly cancel if client aborts or closes connection
 				return
 			case <-time.After(sleepTime):
-				ch <- chunk
+				ch <- model.DreamStreamEvent{Type: model.DreamStreamEventDelta, Content: chunk, Provider: "mock", Model: "mock"}
 			}
 		}
+		ch <- model.DreamStreamEvent{Type: model.DreamStreamEventCompleted, FinishReason: "stop", Provider: "mock", Model: "mock"}
 	}()
 
 	return ch, nil

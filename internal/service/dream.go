@@ -7,14 +7,15 @@ package service
 
 import (
 	"context"
+	"dm-server/internal/model"
 )
 
 type (
 	IDream interface {
-		// StreamDream Real-time streaming dream analysis
-		StreamDream(ctx context.Context, content string) (<-chan string, error)
 		ExtractDreamSymbols(ctx context.Context, content string, emotionTags []string) ([]string, error)
 		SinkDreamSymbolCache(ctx context.Context, userId string, symbols []string, interpretation string, sourceDreamId string) error
+		// StreamDream Real-time streaming dream analysis
+		StreamDream(ctx context.Context, content string) (<-chan model.DreamStreamEvent, error)
 	}
 )
 

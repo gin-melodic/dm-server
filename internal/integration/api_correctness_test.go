@@ -46,15 +46,26 @@ func TestMain(m *testing.M) {
 		serverRouter.Register()(group)
 	})
 
-	testServer.SetPort(8000)
+	// Use an ephemeral loopback port so integration tests do not collide with
+	// local services, Docker port forwards, or another concurrently running test.
+	testServer.SetAddr("127.0.0.1:0")
 	testServer.SetDumpRouterMap(false)
 	testServer.SetErrorLogEnabled(true)
 	testServer.SetAccessLogEnabled(true)
 
 	go testServer.Run()
 
-	// Wait briefly for the server to bind and start
-	time.Sleep(500 * time.Millisecond)
+	// Wait for the listener and point all helpers at the actual allocated port.
+	deadline := time.Now().Add(5 * time.Second)
+	for testServer.GetListenedPort() <= 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	port := testServer.GetListenedPort()
+	if port <= 0 {
+		panic("integration test server did not start within 5 seconds")
+	}
+	testConfig.BaseURL = fmt.Sprintf("http://127.0.0.1:%d/api", port)
+	testConfig.WSURL = fmt.Sprintf("ws://127.0.0.1:%d/api/v1/chat/ws", port)
 
 	code := m.Run()
 

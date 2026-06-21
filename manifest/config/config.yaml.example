@@ -94,12 +94,28 @@ ollama:
   model: "qwq:32b"
   # request timeout(seconds)
   timeout: 300
+  response_header_timeout: 20
+  idle_timeout: 45
+
+# Qwen OpenAI-compatible config
+qwen:
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  model: "qwen3.6-flash"
+  api_key: "sk-xxxx"
+  timeout: 300
+  response_header_timeout: 20
+  idle_timeout: 45
+  max_tokens: 4096
+  enable_thinking: true
+  thinking_budget: 4096
 
 # LMStudio config
 lmstudio:
   base_url: "http://127.0.0.1:1234/v1"
   model: "qwen3.6-27b-ud"
   timeout: 300
+  response_header_timeout: 20
+  idle_timeout: 45
 
 # OpenRouter config
 openrouter:
@@ -107,7 +123,7 @@ openrouter:
   base_url: "https://openrouter.ai/api/v1"
   # model
   model: "qwen/qwen3-235b-a22b:free"
-  # Optional model rotation list. When set, models are tried in order on 429.
+  # Optional model rotation list. Models are retried only before the first output delta.
   # The legacy single "model" value remains supported when this is omitted.
   # models:
   #   - "qwen/qwen3-235b-a22b:free"
@@ -116,10 +132,27 @@ openrouter:
   api_key: "sk-xxxx"
   # request timeout(seconds)
   timeout: 300
+  response_header_timeout: 20
+  idle_timeout: 45
+  max_tokens: 4096
+
+# Tencent TokenHub config (OpenAI-compatible API)
+hunyuan:
+  base_url: "https://tokenhub.tencentmaas.com/v1"
+  model: "deepseek-v4-flash"
+  # TokenHub bearer API key. Kept as secret_key for backward compatibility.
+  secret_key: "your-tokenhub-api-key"
+  timeout: 300
+  response_header_timeout: 20
+  idle_timeout: 45
+  max_tokens: 4096
 
 groq:
   base_url: "https://api.groq.com/openai/v1"
   api_key: "gsk_xxxx"
   timeout: 300
+  response_header_timeout: 20
+  idle_timeout: 45
+  max_tokens: 4096
   models: 
     - "llama-3.3-70b-versatile"

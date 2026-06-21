@@ -5,13 +5,14 @@ import (
 	"math/rand"
 	"strings"
 
-	"github.com/gogf/gf/v2/errors/gerror"
+	"dm-server/internal/model"
+
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/glog"
 )
 
 // analyzeDreamStream Select AI service by config and analyze dream
-func (s *sDream) analyzeDreamStream(ctx context.Context, prompt, dreamContent string) (<-chan string, error) {
+func (s *sDream) analyzeDreamStream(ctx context.Context, prompt, dreamContent string) (<-chan model.DreamStreamEvent, error) {
 	// Get AI service config
 	aiServices := []string{"ollama"} // Default to ollama
 	aiConfig, err := g.Cfg().Get(ctx, "ai_service")
@@ -35,27 +36,101 @@ func (s *sDream) analyzeDreamStream(ctx context.Context, prompt, dreamContent st
 
 	glog.Infof(ctx, "Available AI services: %v", aiServices)
 
-	// Try each service until success or all fail
-	var lastError error
-	for _, service := range aiServices {
-		glog.Infof(ctx, "Trying AI service: %s", service)
-
-		models := configuredProviderModels(ctx, service)
-		resultChan, err := tryAIProvider(ctx, service, models, func(callCtx context.Context) (<-chan string, error) {
-			return s.callAIService(callCtx, service, prompt, dreamContent)
-		})
-		if err == nil {
-			// Successfully called the service
-			return resultChan, nil
+	out := make(chan model.DreamStreamEvent, 16)
+	go func() {
+		defer close(out)
+		lastFailure := model.DreamStreamEvent{Type: model.DreamStreamEventError, Message: "All AI services are unavailable", FinishReason: "all_providers_failed"}
+		send := func(event model.DreamStreamEvent) bool {
+			select {
+			case out <- event:
+				return true
+			case <-ctx.Done():
+				return false
+			}
 		}
 
-		// Record error and try next service
-		glog.Warningf(ctx, "AI service %s failed: %v", service, err)
-		lastError = err
-	}
+		for _, serviceName := range aiServices {
+			models := configuredProviderModels(ctx, serviceName)
+			if len(models) == 0 {
+				models = []string{""}
+			}
+			for _, modelName := range models {
+				callCtx := ctx
+				if modelName != "" {
+					callCtx = context.WithValue(ctx, modelOverrideContextKey{}, modelName)
+				}
+				glog.Infof(ctx, "Trying AI service %s with model: %s", serviceName, configuredModel(callCtx, "configured", "default"))
+				stream, err := s.startAIService(callCtx, serviceName, prompt, dreamContent)
+				if err != nil {
+					lastFailure = model.DreamStreamEvent{Type: model.DreamStreamEventError, Message: err.Error(), FinishReason: "provider_start_error", Provider: serviceName, Model: modelName}
+					glog.Warningf(ctx, "AI service %s model %s failed before streaming: %v", serviceName, modelName, err)
+					continue
+				}
 
-	// All services failed
-	return nil, gerror.Wrap(lastError, "All AI services are unavailable")
+				seenDelta := false
+				terminal := false
+				pending := make([]model.DreamStreamEvent, 0, 1)
+				for event := range stream {
+					switch event.Type {
+					case model.DreamStreamEventDelta:
+						if !seenDelta {
+							seenDelta = true
+							for _, buffered := range pending {
+								if !send(buffered) {
+									return
+								}
+							}
+							pending = nil
+						}
+						if !send(event) {
+							return
+						}
+					case model.DreamStreamEventWarning:
+						if seenDelta {
+							if !send(event) {
+								return
+							}
+						} else {
+							pending = append(pending, event)
+						}
+					case model.DreamStreamEventCompleted:
+						terminal = true
+						if !seenDelta {
+							lastFailure = model.DreamStreamEvent{Type: model.DreamStreamEventError, Message: "AI stream completed without content", FinishReason: "empty_stream", Provider: event.Provider, Model: event.Model}
+							break
+						}
+						for _, buffered := range pending {
+							if !send(buffered) {
+								return
+							}
+						}
+						_ = send(event)
+						return
+					case model.DreamStreamEventError:
+						terminal = true
+						lastFailure = event
+						if seenDelta {
+							_ = send(event)
+							return
+						}
+					}
+					if terminal {
+						break
+					}
+				}
+				if !terminal {
+					lastFailure = model.DreamStreamEvent{Type: model.DreamStreamEventError, Message: "AI stream closed without terminal event", FinishReason: "protocol_error", Provider: serviceName, Model: modelName}
+					if seenDelta {
+						_ = send(lastFailure)
+						return
+					}
+				}
+				glog.Warningf(ctx, "AI service %s model %s failed before first delta: %s", serviceName, modelName, lastFailure.Message)
+			}
+		}
+		_ = send(lastFailure)
+	}()
+	return out, nil
 }
 
 type modelOverrideContextKey struct{}
@@ -78,35 +153,6 @@ func configuredProviderModels(ctx context.Context, service string) []string {
 	return models
 }
 
-func tryAIProvider(
-	ctx context.Context,
-	service string,
-	models []string,
-	call func(context.Context) (<-chan string, error),
-) (<-chan string, error) {
-	if len(models) == 0 {
-		return call(ctx)
-	}
-
-	var lastError error
-	for index, model := range models {
-		glog.Infof(ctx, "Trying AI service %s with model: %s", service, model)
-		callCtx := context.WithValue(ctx, modelOverrideContextKey{}, model)
-		resultChan, err := call(callCtx)
-		if err == nil {
-			return resultChan, nil
-		}
-
-		lastError = err
-		if !isRateLimitError(err) || index == len(models)-1 {
-			return nil, err
-		}
-		glog.Warningf(ctx, "AI service %s model %s was rate limited; trying next model", service, model)
-	}
-
-	return nil, lastError
-}
-
 func configuredModel(ctx context.Context, configured, fallback string) string {
 	if model, ok := ctx.Value(modelOverrideContextKey{}).(string); ok && model != "" {
 		return model
@@ -117,22 +163,8 @@ func configuredModel(ctx context.Context, configured, fallback string) string {
 	return fallback
 }
 
-// Adapters already report rate limits through their ordinary errors (HTTP 429,
-// "rate limit", or their existing localized frequency-limit messages).
-func isRateLimitError(err error) bool {
-	if err == nil {
-		return false
-	}
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "429") ||
-		strings.Contains(message, "rate limit") ||
-		strings.Contains(message, "frequency exceeded") ||
-		strings.Contains(message, "requestlimitexceeded") ||
-		strings.Contains(message, "频率超限")
-}
-
 // callAIService Call the specified AI service
-func (s *sDream) callAIService(ctx context.Context, service, prompt, dreamContent string) (<-chan string, error) {
+func (s *sDream) callAIService(ctx context.Context, service, prompt, dreamContent string) (<-chan model.DreamStreamEvent, error) {
 	switch service {
 	case "openrouter":
 		return shareOpenRouter.analyzeDreamStream(ctx, prompt, dreamContent)
@@ -147,4 +179,11 @@ func (s *sDream) callAIService(ctx context.Context, service, prompt, dreamConten
 	default:
 		return shareOllama.analyzeDreamStream(ctx, prompt, dreamContent)
 	}
+}
+
+func (s *sDream) startAIService(ctx context.Context, service, prompt, dreamContent string) (<-chan model.DreamStreamEvent, error) {
+	if s.providerCall != nil {
+		return s.providerCall(ctx, service, prompt, dreamContent)
+	}
+	return s.callAIService(ctx, service, prompt, dreamContent)
 }

@@ -2,9 +2,10 @@ package dream
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"testing"
+
+	"dm-server/internal/model"
 
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gcfg"
@@ -29,63 +30,79 @@ func TestConfiguredProviderModelsReadsModelList(t *testing.T) {
 	}
 }
 
-func TestTryAIProviderRotatesModelsOnRateLimit(t *testing.T) {
-	models := []string{"first", "second"}
+func TestAnalyzeDreamStreamRetriesBeforeFirstDelta(t *testing.T) {
+	configureSelectorModels(t, []string{"first", "second"})
 	var called []string
-
-	result, err := tryAIProvider(context.Background(), "groq", models, func(ctx context.Context) (<-chan string, error) {
-		model := configuredModel(ctx, "legacy", "fallback")
-		called = append(called, model)
-		if model == "first" {
-			return nil, errors.New("Groq API 调用频率超限，请稍后重试")
+	svc := &sDream{providerCall: func(ctx context.Context, _, _, _ string) (<-chan model.DreamStreamEvent, error) {
+		modelName := configuredModel(ctx, "legacy", "fallback")
+		called = append(called, modelName)
+		if modelName == "first" {
+			return eventStream(model.DreamStreamEvent{Type: model.DreamStreamEventError, Message: "upstream failed", FinishReason: "provider_error"}), nil
 		}
-		ch := make(chan string)
-		close(ch)
-		return ch, nil
-	})
+		return eventStream(
+			model.DreamStreamEvent{Type: model.DreamStreamEventDelta, Content: "second result"},
+			model.DreamStreamEvent{Type: model.DreamStreamEventCompleted, FinishReason: "stop"},
+		), nil
+	}}
 
+	stream, err := svc.analyzeDreamStream(context.Background(), "prompt", "dream")
 	if err != nil {
-		t.Fatalf("tryAIProvider returned error: %v", err)
+		t.Fatalf("analyzeDreamStream: %v", err)
 	}
-	if result == nil {
-		t.Fatal("tryAIProvider returned a nil channel")
+	events := collectEvents(stream)
+	if got := eventContent(events); got != "second result" {
+		t.Fatalf("content = %q, want second result", got)
 	}
-	if !reflect.DeepEqual(called, models) {
-		t.Fatalf("models called = %v, want %v", called, models)
+	if !reflect.DeepEqual(called, []string{"first", "second"}) {
+		t.Fatalf("models called = %v", called)
 	}
+	assertTerminal(t, events, model.DreamStreamEventCompleted, "stop")
 }
 
-func TestTryAIProviderDoesNotRotateOnOtherErrors(t *testing.T) {
-	var calls int
-	wantErr := errors.New("authentication failed")
+func TestAnalyzeDreamStreamDoesNotMixModelsAfterDelta(t *testing.T) {
+	configureSelectorModels(t, []string{"first", "second"})
+	var called []string
+	svc := &sDream{providerCall: func(ctx context.Context, _, _, _ string) (<-chan model.DreamStreamEvent, error) {
+		modelName := configuredModel(ctx, "legacy", "fallback")
+		called = append(called, modelName)
+		return eventStream(
+			model.DreamStreamEvent{Type: model.DreamStreamEventDelta, Content: "partial"},
+			model.DreamStreamEvent{Type: model.DreamStreamEventError, Message: "connection lost", FinishReason: "read_error"},
+		), nil
+	}}
 
-	_, err := tryAIProvider(context.Background(), "groq", []string{"first", "second"}, func(context.Context) (<-chan string, error) {
-		calls++
-		return nil, wantErr
-	})
-
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("error = %v, want %v", err, wantErr)
+	stream, err := svc.analyzeDreamStream(context.Background(), "prompt", "dream")
+	if err != nil {
+		t.Fatalf("analyzeDreamStream: %v", err)
 	}
-	if calls != 1 {
-		t.Fatalf("calls = %d, want 1", calls)
+	events := collectEvents(stream)
+	if got := eventContent(events); got != "partial" {
+		t.Fatalf("content = %q, want partial", got)
 	}
+	if !reflect.DeepEqual(called, []string{"first"}) {
+		t.Fatalf("models called = %v, want only first", called)
+	}
+	assertTerminal(t, events, model.DreamStreamEventError, "read_error")
 }
 
-func TestTryAIProviderPreservesSingleModelConfig(t *testing.T) {
-	var gotModel string
-
-	_, err := tryAIProvider(context.Background(), "groq", nil, func(ctx context.Context) (<-chan string, error) {
-		gotModel = configuredModel(ctx, "legacy-model", "fallback")
-		ch := make(chan string)
-		close(ch)
-		return ch, nil
+func configureSelectorModels(t *testing.T, models []string) {
+	t.Helper()
+	adapter, ok := g.Cfg().GetAdapter().(*gcfg.AdapterFile)
+	if !ok {
+		t.Fatal("expected file config adapter")
+	}
+	_ = adapter.Set("ai_service", "groq")
+	_ = adapter.Set("groq.models", models)
+	t.Cleanup(func() {
+		_ = adapter.Set("groq.models", nil)
 	})
+}
 
-	if err != nil {
-		t.Fatalf("tryAIProvider returned error: %v", err)
+func eventStream(events ...model.DreamStreamEvent) <-chan model.DreamStreamEvent {
+	ch := make(chan model.DreamStreamEvent, len(events))
+	for _, event := range events {
+		ch <- event
 	}
-	if gotModel != "legacy-model" {
-		t.Fatalf("model = %q, want legacy-model", gotModel)
-	}
+	close(ch)
+	return ch
 }

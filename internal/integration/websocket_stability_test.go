@@ -15,31 +15,31 @@ import (
 
 // StabilityMetrics aggregates WebSocket test results
 type StabilityMetrics struct {
-	TotalConnAttempts    int64
-	SuccessfulConns      int64
-	TotalReconns         int64
-	SuccessfulReconns    int64
-	MessagesSent         int64
-	MessagesReceived     int64
-	ExpectedMessages     int64
-	PacketLossRate       float64
-	MinLatency           time.Duration
-	MaxLatency           time.Duration
-	AvgLatency           time.Duration
-	Throughput           float64 // Msg/Sec
-	ConnSuccessRate      float64
-	ReconnSuccessRate    float64
+	TotalConnAttempts int64
+	SuccessfulConns   int64
+	TotalReconns      int64
+	SuccessfulReconns int64
+	MessagesSent      int64
+	MessagesReceived  int64
+	ExpectedMessages  int64
+	PacketLossRate    float64
+	MinLatency        time.Duration
+	MaxLatency        time.Duration
+	AvgLatency        time.Duration
+	Throughput        float64 // Msg/Sec
+	ConnSuccessRate   float64
+	ReconnSuccessRate float64
 }
 
 // WSClient simulates a single WebSocket client session
 type WSClient struct {
-	id              int
-	config          TestConfig
-	token           string
-	metrics         *StabilityMetrics
-	latencyList     []time.Duration
-	latencyMu       sync.Mutex
-	t               *testing.T
+	id          int
+	config      TestConfig
+	token       string
+	metrics     *StabilityMetrics
+	latencyList []time.Duration
+	latencyMu   sync.Mutex
+	t           *testing.T
 }
 
 func NewWSClient(id int, cfg TestConfig, token string, metrics *StabilityMetrics, t *testing.T) *WSClient {
@@ -104,7 +104,7 @@ func (c *WSClient) runSession(wg *sync.WaitGroup, stopChan <-chan struct{}) {
 			}
 
 			msgBytes, _ := json.Marshal(payload)
-			
+
 			sendTime := time.Now()
 			err = conn.WriteMessage(websocket.TextMessage, msgBytes)
 			if err != nil {
@@ -185,9 +185,9 @@ func (c *WSClient) runSession(wg *sync.WaitGroup, stopChan <-chan struct{}) {
 // handleReconnection simulates the reconnection protocol
 func (c *WSClient) handleReconnection(wsURL string) *websocket.Conn {
 	atomic.AddInt64(&c.metrics.TotalReconns, 1)
-	
+
 	dialer := websocket.Dialer{HandshakeTimeout: 3 * time.Second}
-	
+
 	// Max 3 reconnection attempts with exponential backoff
 	backoff := 500 * time.Millisecond
 	for i := 0; i < 3; i++ {
@@ -208,7 +208,8 @@ func (c *WSClient) handleReconnection(wsURL string) *websocket.Conn {
 
 // TestWebSocketStability performs a rigorous concurrent stress test on WebSocket
 func TestWebSocketStability(t *testing.T) {
-	cfg := LoadConfig()
+	// TestMain replaces the HTTP/WS URLs with the server's ephemeral port.
+	cfg := testConfig
 	token, _ := GenerateTestToken(1, "stability_tester", cfg.JWTSecret)
 
 	metrics := &StabilityMetrics{

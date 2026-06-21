@@ -4,6 +4,7 @@ import (
 	"context"
 	"dm-server/internal/consts"
 	"dm-server/internal/dao"
+	"dm-server/internal/model"
 	"dm-server/internal/model/entity"
 	"dm-server/internal/service"
 	"dm-server/internal/utility/limiter"
@@ -20,10 +21,12 @@ import (
 
 // AIServiceSelector Define AI service selector interface
 type AIServiceSelector interface {
-	AnalyzeDreamStream(ctx context.Context, prompt, content string) (<-chan string, error)
+	AnalyzeDreamStream(ctx context.Context, prompt, content string) (<-chan model.DreamStreamEvent, error)
 }
 
-type sDream struct{}
+type sDream struct {
+	providerCall func(context.Context, string, string, string) (<-chan model.DreamStreamEvent, error)
+}
 
 func New() *sDream {
 	return &sDream{}
@@ -42,15 +45,15 @@ func (s *sDream) SinkDreamSymbolCache(ctx context.Context, userId string, symbol
 }
 
 // StreamDream Real-time streaming dream analysis
-func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan string, error) {
-	ch := make(chan string, 10)
+func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan model.DreamStreamEvent, error) {
+	ch := make(chan model.DreamStreamEvent, 10)
 
 	// Try to acquire concurrency quota before starting worker goroutine
 	if !limiter.Acquire(ctx) {
 		// Immediately return a channel that pushes one error
 		go func() {
 			defer close(ch)
-			ch <- "[error]Service busy, please try again later"
+			ch <- model.DreamStreamEvent{Type: model.DreamStreamEventError, Message: "Service busy, please try again later", FinishReason: "busy"}
 		}()
 		return ch, nil
 	}
@@ -71,7 +74,7 @@ func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan string
 		userid := ctx.Value(consts.CtxUserId)
 		if g.IsEmpty(userid) {
 			glog.Async(true).Error(ctx, fmt.Errorf("failed to get user id"))
-			ch <- "服务繁忙，请稍候再试"
+			ch <- model.DreamStreamEvent{Type: model.DreamStreamEventError, Message: "服务繁忙，请稍候再试", FinishReason: "user_context_error"}
 			return
 		}
 
@@ -83,7 +86,7 @@ func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan string
 			err := dao.Users.Ctx(ctx).Where("id", userid).Scan(&user)
 			if err != nil || user == nil {
 				glog.Async(true).Error(ctx, fmt.Errorf("failed to get user info: %v", err))
-				ch <- "服务繁忙，请稍候再试"
+				ch <- model.DreamStreamEvent{Type: model.DreamStreamEventError, Message: "服务繁忙，请稍候再试", FinishReason: "user_lookup_error"}
 				return
 			}
 			openidValue = user.Openid
@@ -92,7 +95,7 @@ func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan string
 		// Check user analysis count limit
 		if !limiter.CheckUserAnalysisLimit(ctx, openidValue.(string)) {
 			glog.Async(true).Infof(ctx, "User %s exceeds analysis count limit", openidValue)
-			ch <- "[error]您已达到小时内分析次数上限，请稍后再试"
+			ch <- model.DreamStreamEvent{Type: model.DreamStreamEventError, Message: "您已达到小时内分析次数上限，请稍后再试", FinishReason: "rate_limit"}
 			return
 		}
 
@@ -107,7 +110,8 @@ func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan string
 		if interpretResp != nil && interpretResp.isL1Hit() {
 			setDreamStreamMetadata(ctx, interpretResp)
 			glog.Infof(ctx, "知识库L1缓存命中: symbols=%v matched=%v", interpretResp.Data.SymbolsDetected, interpretResp.Data.SymbolsMatched)
-			ch <- interpretResp.Data.Interpretation
+			ch <- model.DreamStreamEvent{Type: model.DreamStreamEventDelta, Content: interpretResp.Data.Interpretation, Provider: "knowledge", Model: "L1"}
+			ch <- model.DreamStreamEvent{Type: model.DreamStreamEventCompleted, FinishReason: "cache_hit", Provider: "knowledge", Model: "L1"}
 			return
 		}
 		if interpretResp != nil {
@@ -134,7 +138,7 @@ func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan string
 		// 4. Get dream analysis prompt
 		prompt, err := g.Cfg().Get(ctx, "prompts.dream_analysis")
 		if err != nil {
-			ch <- "[error] Get davinci failed"
+			ch <- model.DreamStreamEvent{Type: model.DreamStreamEventError, Message: "Get dream analysis prompt failed", FinishReason: "config_error"}
 			return
 		}
 		fullPrompt := "``` \n# 梦境解析专家系统指令\n\n"
@@ -155,7 +159,7 @@ func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan string
 				return
 			}
 			glog.Async(true).Error(ctx, err)
-			ch <- "[error] Call AI_Service to analyze dream failed"
+			ch <- model.DreamStreamEvent{Type: model.DreamStreamEventError, Message: "Call AI service to analyze dream failed", FinishReason: "provider_error"}
 			return
 		}
 		glog.Async(true).Infof(ctx, "AI_Service analysis started successfully")
@@ -166,19 +170,18 @@ func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan string
 				// Cancel: Stop consuming LLM output and exit
 				glog.Async(true).Info(ctx, "stream canceled by client")
 				return
-			case piece, ok := <-contentChan:
+			case event, ok := <-contentChan:
 				if !ok {
+					ch <- model.DreamStreamEvent{Type: model.DreamStreamEventError, Message: "AI stream closed without terminal event", FinishReason: "protocol_error"}
 					return
 				}
-				if piece == "" {
+				if event.Type == model.DreamStreamEventDelta && event.Content == "" {
 					continue
 				}
-				if strings.HasPrefix(piece, "[error]") {
-					glog.Async(true).Error(ctx, fmt.Errorf("LLM output error: %s", piece))
-					ch <- "服务繁忙，请稍候再试"
+				ch <- event
+				if event.Terminal() {
 					return
 				}
-				ch <- piece
 			}
 		}
 	}()

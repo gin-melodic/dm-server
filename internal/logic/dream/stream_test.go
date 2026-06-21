@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"dm-server/internal/consts"
+	"dm-server/internal/model"
 
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gcfg"
@@ -187,10 +188,12 @@ func configureDreamStreamTest(t *testing.T, knowledgeURL, ollamaURL string) {
 	adapter.Set("prompts.dream_analysis", "测试提示词")
 }
 
-func collectStream(ch <-chan string) string {
+func collectStream(ch <-chan model.DreamStreamEvent) string {
 	var builder strings.Builder
-	for piece := range ch {
-		builder.WriteString(piece)
+	for event := range ch {
+		if event.Type == model.DreamStreamEventDelta {
+			builder.WriteString(event.Content)
+		}
 	}
 	return builder.String()
 }

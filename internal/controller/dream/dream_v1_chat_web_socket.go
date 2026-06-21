@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	v1 "dm-server/api/dream/v1"
 	"dm-server/internal/consts"
 	"dm-server/internal/middleware"
+	"dm-server/internal/model"
 	"dm-server/internal/service"
 
 	"github.com/gorilla/websocket"
@@ -30,6 +32,12 @@ var wsUpgrader = websocket.Upgrader{
 		g.Log().Error(r.Context(), reason)
 	},
 }
+
+const (
+	wsPongWait   = 60 * time.Second
+	wsPingPeriod = 25 * time.Second
+	wsWriteWait  = 10 * time.Second
+)
 
 func (c *ControllerV1) ChatWebSocket(ctx context.Context, req *v1.ChatWebSocketReq) (res *v1.ChatWebSocketRes, err error) {
 	r := g.RequestFromCtx(ctx)
@@ -71,7 +79,9 @@ func (c *ControllerV1) chatWebSocket(ctx context.Context, req *v1.ChatWebSocketR
 	// Single read loop: continuously read to receive all client messages, close/ping/pong/errors
 	go func() {
 		conn.SetReadLimit(1 << 20)
+		_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
 		conn.SetPongHandler(func(string) error {
+			_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
 			return nil
 		})
 		for {
@@ -87,12 +97,20 @@ func (c *ControllerV1) chatWebSocket(ctx context.Context, req *v1.ChatWebSocketR
 			}
 		}
 	}()
+	pingTicker := time.NewTicker(wsPingPeriod)
+	defer pingTicker.Stop()
 
 	// Message loop: handle incoming client messages and stream responses
 	for {
 		select {
 		case <-wsCtx.Done():
 			return nil, nil
+		case <-pingTicker.C:
+			_ = conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				cancel()
+				return nil, nil
+			}
 		case wsMsg := <-msgChan:
 			if wsMsg.err != nil {
 				g.Log().Debug(ctx, "ws read closed:", wsMsg.err)
@@ -123,37 +141,61 @@ func (c *ControllerV1) chatWebSocket(ctx context.Context, req *v1.ChatWebSocketR
 
 			// Write loop: pull chunks from stream and write back; stop if wsCtx cancelled or write fails
 			var fullResult strings.Builder
+			completed := false
+			failed := false
 		writeLoop:
 			for {
 				select {
 				case <-wsCtx.Done():
+					failed = true
 					break writeLoop
-				case chunk, ok := <-stream:
+				case <-pingTicker.C:
+					_ = conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
+					if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+						cancel()
+						failed = true
+						break writeLoop
+					}
+				case event, ok := <-stream:
 					if !ok {
 						break writeLoop
 					}
-					if chunk == "" {
-						continue
-					}
-					if strings.HasPrefix(chunk, "[error]") {
-						writeWsError(conn, wsMsg.mt, strings.TrimPrefix(chunk, "[error]"))
+					switch event.Type {
+					case model.DreamStreamEventDelta:
+						if event.Content == "" {
+							continue
+						}
+						fullResult.WriteString(event.Content)
+						out := v1.ChatMessage{Type: "message", Content: event.Content}
+						if err := writeWsJSON(conn, wsMsg.mt, out); err != nil {
+							cancel()
+							failed = true
+							break writeLoop
+						}
+					case model.DreamStreamEventWarning:
+						_ = writeWsJSON(conn, wsMsg.mt, v1.ChatMessage{Type: "warning", Error: event.Message})
+					case model.DreamStreamEventError:
+						failed = true
+						writeWsError(conn, wsMsg.mt, event.Message)
 						break writeLoop
-					}
-					fullResult.WriteString(chunk)
-					out := v1.ChatMessage{Type: "message", Content: chunk}
-					if err := writeWsJSON(conn, wsMsg.mt, out); err != nil {
-						cancel()
+					case model.DreamStreamEventCompleted:
+						completed = true
 						break writeLoop
 					}
 				}
 			}
-
 			// If normally completed and connection still alive, send done with full result
+			if !completed && !failed {
+				writeWsError(conn, wsMsg.mt, "stream closed without completion")
+				failed = true
+			}
 			select {
 			case <-wsCtx.Done():
 				// Already cancelled, no more writes
 			default:
-				_ = writeWsJSON(conn, wsMsg.mt, v1.ChatMessage{Type: "done", Result: fullResult.String()})
+				if completed && !failed {
+					_ = writeWsJSON(conn, wsMsg.mt, v1.ChatMessage{Type: "done", Result: fullResult.String()})
+				}
 			}
 		}
 	}
@@ -161,6 +203,7 @@ func (c *ControllerV1) chatWebSocket(ctx context.Context, req *v1.ChatWebSocketR
 
 func writeWsJSON(conn *websocket.Conn, mt int, v any) error {
 	b, _ := json.Marshal(v)
+	_ = conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
 	return conn.WriteMessage(mt, b)
 }
 

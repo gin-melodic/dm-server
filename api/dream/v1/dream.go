@@ -12,7 +12,7 @@ type ChatWebSocketRes struct{}
 
 // WebSocket 消息结构
 type ChatMessage struct {
-	Type         string `json:"type"`              // message, error, done
+	Type         string `json:"type"`              // message, warning, error, done
 	DreamContent string `json:"dreamContent"`      // dream content
 	Emotion      string `json:"emotion,omitempty"` // dream emotion tag
 	Content      string `json:"content"`           // response content(stream chunk)

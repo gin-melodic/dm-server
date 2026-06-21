@@ -1,7 +1,6 @@
 package dream
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -10,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"dm-server/internal/model"
 
 	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/frame/g"
@@ -36,16 +37,25 @@ type sOpenRouterRequest struct {
 }
 
 // analyzeDreamStream Use OpenRouter to analyze dream
-func (s *sOpenRouter) analyzeDreamStream(ctx context.Context, prompt, dreamContent string) (<-chan string, error) {
+func (s *sOpenRouter) analyzeDreamStream(ctx context.Context, prompt, dreamContent string) (<-chan model.DreamStreamEvent, error) {
 	// Get OpenRouter configuration
 	openRouterConfig, err := g.Cfg().Get(ctx, "openrouter")
 	if err != nil {
 		return nil, gerror.Wrap(err, "Failed to get OpenRouter configuration")
 	}
 
-	baseURL := openRouterConfig.MapStrStr()["base_url"]
-	model := configuredModel(ctx, openRouterConfig.MapStrStr()["model"], "anthropic/claude-3.6-sonnet")
-	apiKey := openRouterConfig.MapStrStr()["api_key"]
+	config := openRouterConfig.MapStrStr()
+	baseURL := config["base_url"]
+	model := configuredModel(ctx, config["model"], "anthropic/claude-3.6-sonnet")
+	apiKey := config["api_key"]
+	timeouts := providerTimeouts(config)
+	requestCtx, cancel := context.WithTimeout(ctx, timeouts.Generation)
+	streamOwnsCancel := false
+	defer func() {
+		if !streamOwnsCancel {
+			cancel()
+		}
+	}()
 
 	// Set default values
 	if baseURL == "" {
@@ -77,11 +87,11 @@ func (s *sOpenRouter) analyzeDreamStream(ctx context.Context, prompt, dreamConte
 			},
 		},
 		Stream:           true,
-		MaxTokens:        4096,                                // limit max output tokens
-		Temperature:      0.7,                                 // control randomness
-		TopP:             0.9,                                 // control text diversity
-		FrequencyPenalty: 1.05,                                // control repetition
-		Stop:             []string{"\n\n\n", "## 结束", "//完成"}, // set stop words
+		MaxTokens:        positiveInt(config["max_tokens"], 4096), // limit max output tokens
+		Temperature:      0.7,                                     // control randomness
+		TopP:             0.9,                                     // control text diversity
+		FrequencyPenalty: 1.05,                                    // control repetition
+		Stop:             []string{"\n\n\n", "## 结束", "//完成"},     // set stop words
 	}
 
 	// Convert request to JSON
@@ -100,7 +110,7 @@ func (s *sOpenRouter) analyzeDreamStream(ctx context.Context, prompt, dreamConte
 		glog.Debugf(ctx, "Attempt %d (max retries: %d)", attempt, maxRetries)
 
 		// Use http.NewRequest + WithContext(ctx)
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, apiUrl, bytes.NewReader(requestBody))
+		httpReq, err := http.NewRequestWithContext(requestCtx, http.MethodPost, apiUrl, bytes.NewReader(requestBody))
 		if err != nil {
 			glog.Debugf(ctx, "Failed to create HTTP request: %v", err)
 			return nil, gerror.Wrap(err, "Failed to build HTTP request")
@@ -113,7 +123,7 @@ func (s *sOpenRouter) analyzeDreamStream(ctx context.Context, prompt, dreamConte
 		glog.Debugf(ctx, "Request Header Authorization is set: %t", apiKey != "")
 
 		// Use default client or configure Transport to ensure cancellation is supported
-		resp, err := http.DefaultClient.Do(httpReq)
+		resp, err := streamingHTTPClient(timeouts).Do(httpReq)
 		if err != nil {
 			// If it's ctx cancellation, err might be context.Canceled
 			if errors.Is(err, context.Canceled) {
@@ -154,137 +164,8 @@ func (s *sOpenRouter) analyzeDreamStream(ctx context.Context, prompt, dreamConte
 			return nil, gerror.Newf("OpenRouter API returned status code %d: %s", resp.StatusCode, string(b))
 		}
 
-		ch := make(chan string)
-		go func() {
-			defer resp.Body.Close()
-			defer close(ch)
-
-			reader := bufio.NewScanner(resp.Body)
-			// Adjust buffer to avoid truncating large lines
-			buf := make([]byte, 0, 64*1024)
-			reader.Buffer(buf, 1024*1024)
-
-			glog.Debugf(ctx, "Start reading response stream")
-
-			isThinking := false
-			defer func() {
-				if isThinking {
-					ch <- "</think>"
-				}
-			}()
-
-			for {
-				select {
-				case <-ctx.Done():
-					// Trigger cancellation: exit directly, the http client will interrupt the underlying connection
-					glog.Debugf(ctx, "Context cancelled during streaming read")
-					return
-				default:
-					if !reader.Scan() {
-						// EOF or error
-						if err := reader.Err(); err != nil {
-							glog.Debugf(ctx, "Error reading response stream: %v", err)
-						} else {
-							glog.Debugf(ctx, "Response stream reading complete (EOF)")
-						}
-						return
-					}
-
-					line := reader.Text()
-					// Skip empty lines
-					if line == "" {
-						continue
-					}
-
-					// Skip non-data lines (like "event: completion")
-					if !bytes.HasPrefix([]byte(line), []byte("data: ")) {
-						glog.Debugf(ctx, "Skipping non-data line: %s", line)
-						continue
-					}
-
-					// Extract JSON from data line
-					jsonData := line[6:] // Skip "data: " prefix
-
-					// Check for end marker
-					if jsonData == "[DONE]" {
-						glog.Debugf(ctx, "Received stream end marker [DONE]")
-						return
-					}
-
-					var result struct {
-						Choices []struct {
-							Delta struct {
-								Content          string `json:"content"`
-								ReasoningContent string `json:"reasoning_content"`
-								Reasoning        string `json:"reasoning"`
-							} `json:"delta"`
-							FinishReason string `json:"finish_reason"`
-						} `json:"choices"`
-						Error *struct {
-							Message string `json:"message"`
-							Code    string `json:"code"`
-						} `json:"error,omitempty"`
-					}
-
-					if err := json.Unmarshal([]byte(jsonData), &result); err == nil {
-						// Check for errors
-						if result.Error != nil {
-							glog.Debugf(ctx, "API returned error: Code=%s, Message=%s", result.Error.Code, result.Error.Message)
-							// If it's a rate limiting error, log it
-							if result.Error.Code == "rate_limit_exceeded" {
-								glog.Warning(ctx, "OpenRouter returned rate limiting error:", result.Error.Message)
-							}
-							ch <- "[error]" + result.Error.Message
-							return
-						}
-
-						if len(result.Choices) > 0 {
-							choice := result.Choices[0]
-
-							// Get reasoning content if any
-							reasoning := choice.Delta.ReasoningContent
-							if reasoning == "" {
-								reasoning = choice.Delta.Reasoning
-							}
-
-							if reasoning != "" {
-								if !isThinking {
-									isThinking = true
-									ch <- "<think>"
-								}
-								ch <- reasoning
-							}
-
-							content := choice.Delta.Content
-							if content != "" {
-								if isThinking {
-									isThinking = false
-									ch <- "</think>"
-								}
-								ch <- content
-							}
-
-							finishReason := choice.FinishReason
-							if finishReason != "" && finishReason != "none" && finishReason != "null" {
-								if isThinking {
-									isThinking = false
-									ch <- "</think>"
-								}
-								glog.Debugf(ctx, "Received finish reason: %s", finishReason)
-								if finishReason == "length" {
-									glog.Debugf(ctx, "Model reached maximum length limit, sending truncation warning")
-									ch <- "[warning]由于内容长度限制，生成的内容可能不完整。如需完整分析，请尝试提供更短的梦境描述。"
-								}
-								return
-							}
-						}
-					} else {
-						glog.Debugf(ctx, "JSON parsing failed: %v, data: %s", err, jsonData)
-					}
-				}
-			}
-		}()
-		return ch, nil
+		streamOwnsCancel = true
+		return streamOpenAIResponse(requestCtx, resp, "openrouter", model, timeouts.Idle, cancel), nil
 	}
 
 	return nil, gerror.New("OpenRouter API call failed, maximum retry attempts reached")

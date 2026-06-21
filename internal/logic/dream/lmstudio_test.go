@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"dm-server/internal/model"
+
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gcfg"
 )
@@ -63,12 +65,7 @@ func TestLMStudio_AnalyzeDreamStream_Success(t *testing.T) {
 		t.Fatalf("Failed to analyze dream stream: %v", err)
 	}
 
-	var results []string
-	for chunk := range ch {
-		results = append(results, chunk)
-	}
-
-	fullResponse := strings.Join(results, "")
+	fullResponse := collectEventContent(ch)
 	expectedResponse := "解析您的梦境。"
 	if fullResponse != expectedResponse {
 		t.Errorf("Expected response %q, got %q", expectedResponse, fullResponse)
@@ -98,12 +95,7 @@ func TestLMStudio_AnalyzeDreamStream_DefaultModel(t *testing.T) {
 		t.Fatalf("Failed to analyze dream stream: %v", err)
 	}
 
-	var results []string
-	for chunk := range ch {
-		results = append(results, chunk)
-	}
-
-	fullResponse := strings.Join(results, "")
+	fullResponse := collectEventContent(ch)
 	if fullResponse != "测试" {
 		t.Errorf("Expected response %q, got %q", "测试", fullResponse)
 	}
@@ -174,14 +166,19 @@ func TestLMStudio_AnalyzeDreamStream_Reasoning(t *testing.T) {
 		t.Fatalf("Failed to analyze dream stream with reasoning: %v", err)
 	}
 
-	var results []string
-	for chunk := range ch {
-		results = append(results, chunk)
-	}
-
-	fullResponse := strings.Join(results, "")
+	fullResponse := collectEventContent(ch)
 	expectedResponse := "<think>思考中</think>分析内容"
 	if fullResponse != expectedResponse {
 		t.Errorf("Expected response %q, got %q", expectedResponse, fullResponse)
 	}
+}
+
+func collectEventContent(ch <-chan model.DreamStreamEvent) string {
+	var results []string
+	for event := range ch {
+		if event.Type == model.DreamStreamEventDelta {
+			results = append(results, event.Content)
+		}
+	}
+	return strings.Join(results, "")
 }
