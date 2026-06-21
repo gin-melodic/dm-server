@@ -28,6 +28,18 @@ type EmailAuthRes struct {
 	EmailVerificationRequired bool      `json:"email_verification_required,omitempty"`
 }
 
+// Apple login via a Supabase user already returned by native Sign in with Apple.
+type AppleAuthReq struct {
+	g.Meta      `path:"/v1/apple/auth" method:"post" summary:"Apple Login via Supabase" tags:"user_auth"`
+	SupabaseUid string `json:"supabase_uid" v:"required#Supabase uid cannot be empty" dc:"Supabase Auth user UUID"`
+	Email       string `json:"email" dc:"Email address returned by Supabase Auth"`
+}
+
+type AppleAuthRes struct {
+	Token    string    `json:"token"`
+	UserInfo *UserInfo `json:"user_info"`
+}
+
 type UserInfo struct {
 	Id       uint64  `json:"id"`
 	OpenId   string  `json:"openid"`
@@ -93,6 +105,8 @@ type PsycheProfile struct {
 	IntegrationLevel       string                 `json:"integrationLevel" dc:"Profile integration level"`
 	IntegrationDescription string                 `json:"integrationDescription" dc:"Profile integration description"`
 	IntegrationInsightKey  string                 `json:"integrationInsightKey" dc:"Profile integration insight locale key"`
+	HasProfileData         bool                   `json:"hasProfileData" dc:"Whether completed dreams exist for profile aggregation"`
+	CompletedDreamCount    int                    `json:"completedDreamCount" dc:"Completed dream count used for profile aggregation"`
 	IntegrationSignals     []PsycheProfileSignal  `json:"integrationSignals" dc:"Signals contributing to integration score"`
 	Archetypes             []ArchetypeProfileItem `json:"archetypes" dc:"Archetype profile"`
 	DominantArchetype      string                 `json:"dominantArchetype" dc:"Dominant archetype"`

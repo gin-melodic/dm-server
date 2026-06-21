@@ -31,16 +31,12 @@ func (s *sHunyuan) analyzeDreamStream(ctx context.Context, prompt, dreamContent 
 	secretID := hunyuanConfig.MapStrStr()["secret_id"]
 	secretKey := hunyuanConfig.MapStrStr()["secret_key"]
 	region := hunyuanConfig.MapStrStr()["region"]
-	model := hunyuanConfig.MapStrStr()["model"]
+	model := configuredModel(ctx, hunyuanConfig.MapStrStr()["model"], "hy3-preview")
 
 	// Set default values
 	if region == "" {
 		region = "ap-guangzhou"
 	}
-	if model == "" {
-		model = "hy3-preview"
-	}
-
 	// If the configuration does not contain key information, try to get it from the environment variable
 	if secretID == "" {
 		secretID = os.Getenv("TENCENTCLOUD_SECRET_ID")

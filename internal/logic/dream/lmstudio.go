@@ -54,15 +54,12 @@ func (s *sLMStudio) analyzeDreamStream(ctx context.Context, prompt, dreamContent
 			}
 		}
 	}
+	model = configuredModel(ctx, model, "qwen3.6-27b-ud")
 
 	// Set default values
 	if baseURL == "" {
 		baseURL = "http://127.0.0.1:1234/v1"
 	}
-	if model == "" {
-		model = "qwen3.6-27b-ud"
-	}
-
 	// apiUrl
 	apiUrl := fmt.Sprintf("%s/chat/completions", baseURL)
 

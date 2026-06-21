@@ -44,17 +44,13 @@ func (s *sOpenRouter) analyzeDreamStream(ctx context.Context, prompt, dreamConte
 	}
 
 	baseURL := openRouterConfig.MapStrStr()["base_url"]
-	model := openRouterConfig.MapStrStr()["model"]
+	model := configuredModel(ctx, openRouterConfig.MapStrStr()["model"], "anthropic/claude-3.6-sonnet")
 	apiKey := openRouterConfig.MapStrStr()["api_key"]
 
 	// Set default values
 	if baseURL == "" {
 		baseURL = "https://openrouter.ai/api/v1"
 	}
-	if model == "" {
-		model = "anthropic/claude-3.6-sonnet"
-	}
-
 	// apiUrl
 	apiUrl := fmt.Sprintf("%s/chat/completions", baseURL)
 

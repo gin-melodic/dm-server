@@ -41,6 +41,10 @@ COMMENT ON COLUMN users.supabase_uid IS 'Supabase Auth user UUID (JWT sub)';
 
 COMMENT ON COLUMN users.auth_provider IS 'Auth provider: wechat | email | ...';
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_supabase_uid_unique
+    ON users (supabase_uid)
+    WHERE supabase_uid IS NOT NULL AND deleted_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS dreams (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL,

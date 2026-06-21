@@ -16,7 +16,7 @@ import (
 func Auth(r *ghttp.Request) {
 	// Skip auth for public login endpoints
 	path := r.URL.Path
-	if strings.Contains(path, "/wechat/auth") || strings.Contains(path, "/email/auth") {
+	if strings.Contains(path, "/wechat/auth") || strings.Contains(path, "/email/auth") || strings.Contains(path, "/apple/auth") {
 		r.Middleware.Next()
 		return
 	}

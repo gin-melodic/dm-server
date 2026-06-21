@@ -39,6 +39,7 @@ var (
 		"local_cache": {},
 		"cloud_sync":  {},
 	}
+	supabaseHTTPClient = &http.Client{Timeout: 10 * time.Second}
 )
 
 type psycheDreamRow struct {
@@ -113,6 +114,32 @@ func (s *sAuth) WechatLogin(ctx context.Context, req *v1.WechatAuthReq) (*v1.Wec
 // ─────────────────────────────────────────────────────────
 func (s *sAuth) EmailLogin(ctx context.Context, req *v1.EmailAuthReq) (*v1.EmailAuthRes, error) {
 	return s.emailPasswordLogin(ctx, req)
+}
+
+func (s *sAuth) AppleLogin(ctx context.Context, req *v1.AppleAuthReq) (*v1.AppleAuthRes, error) {
+	supabaseUID := strings.TrimSpace(req.SupabaseUid)
+	if supabaseUID == "" {
+		return nil, gerror.New("Supabase uid is required")
+	}
+
+	email := strings.TrimSpace(req.Email)
+	user, err := s.findOrCreateSupabaseUser(ctx, supabaseUID, email, "apple")
+	if err != nil {
+		return nil, gerror.Wrap(err, "Find or Create User failed")
+	}
+
+	token, err := s.generateServerJWT(ctx, user.Id, supabaseUID, "", "apple")
+	if err != nil {
+		return nil, gerror.Wrap(err, "Failed to generate server JWT")
+	}
+
+	return &v1.AppleAuthRes{
+		Token: token,
+		UserInfo: &v1.UserInfo{
+			Id:    user.Id,
+			Email: email,
+		},
+	}, nil
 }
 
 func (s *sAuth) emailPasswordLogin(ctx context.Context, req *v1.EmailAuthReq) (*v1.EmailAuthRes, error) {
@@ -329,11 +356,14 @@ func (s *sAuth) GetPsycheProfile(ctx context.Context, req *v1.GetPsycheProfileRe
 	}
 	score, level, insightKey, integrationSignals := psycheIntegration(dreams)
 	archetypes, dominant := psycheArchetypes(dreams, score)
+	completedDreamCount := len(dreams)
 	profile := v1.GetPsycheProfileRes{
 		IntegrationScore:       score,
 		IntegrationLevel:       level,
 		IntegrationDescription: insightKey,
 		IntegrationInsightKey:  insightKey,
+		HasProfileData:         completedDreamCount > 0,
+		CompletedDreamCount:    completedDreamCount,
 		IntegrationSignals:     integrationSignals,
 		Archetypes:             archetypes,
 		DominantArchetype:      dominant,
@@ -419,8 +449,7 @@ func postSupabasePasswordAuth(ctx context.Context, url, apiKey string, payload g
 	request.Header.Set("apikey", apiKey)
 	request.Header.Set("Authorization", "Bearer "+apiKey)
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	response, err := client.Do(request)
+	response, err := supabaseHTTPClient.Do(request)
 	if err != nil {
 		return nil, gerror.Wrap(err, "Failed to request Supabase auth")
 	}
@@ -624,7 +653,7 @@ func psycheIntegration(dreams []psycheDreamRow) (float64, string, string, []v1.P
 	var insightKey string
 	switch {
 	case total == 0:
-		score = 20
+		score = 0
 		level = "low"
 		insightKey = "profileIntegrationInsightLow"
 	case total < 3:
@@ -892,8 +921,12 @@ func (s *sAuth) findOrCreateWechatUser(ctx context.Context, openid string) (*ent
 }
 
 func (s *sAuth) findOrCreateEmailUser(ctx context.Context, supabaseUID, email string) (*entity.Users, error) {
-	var user *entity.Users
 	glog.Infof(ctx, "Find or create email user: %s, %s", supabaseUID, email)
+	return s.findOrCreateSupabaseUser(ctx, supabaseUID, email, "email")
+}
+
+func (s *sAuth) findOrCreateSupabaseUser(ctx context.Context, supabaseUID, email, provider string) (*entity.Users, error) {
+	var user *entity.Users
 	err := dao.Users.Ctx(ctx).
 		Where("supabase_uid", supabaseUID).
 		Where("deleted_at IS NULL").
@@ -915,12 +948,12 @@ func (s *sAuth) findOrCreateEmailUser(ctx context.Context, supabaseUID, email st
 	user = &entity.Users{
 		SupabaseUid:  supabaseUID,
 		Email:        email,
-		AuthProvider: "email",
+		AuthProvider: provider,
 	}
 	lastId, err := dao.Users.Ctx(ctx).Data(g.Map{
 		"supabase_uid":  supabaseUID,
 		"email":         email,
-		"auth_provider": "email",
+		"auth_provider": provider,
 	}).InsertAndGetId()
 	if err != nil {
 		return nil, gerror.Wrap(err, "Failed to create user")

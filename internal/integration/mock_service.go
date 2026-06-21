@@ -164,6 +164,44 @@ func (m *MockService) EmailLogin(ctx context.Context, req *v1User.EmailAuthReq) 
 	}, nil
 }
 
+func (m *MockService) AppleLogin(ctx context.Context, req *v1User.AppleAuthReq) (*v1User.AppleAuthRes, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.shouldFail {
+		return nil, gerror.New("Mock Apple Authentication Unavailable")
+	}
+
+	if req.SupabaseUid == "" {
+		return nil, gerror.New("supabase uid cannot be empty")
+	}
+
+	userID := m.nextUserID
+	m.nextUserID++
+
+	email := fmt.Sprintf("apple_user_%d@example.com", userID)
+	supabaseUID := req.SupabaseUid
+	userInfo := &v1User.UserInfo{
+		Id:       userID,
+		OpenId:   supabaseUID,
+		Nickname: fmt.Sprintf("Apple用户_%d", userID),
+		Avatar:   "https://example.com/default-avatar.png",
+		Email:    email,
+		Lang:     nil,
+	}
+	m.users[userID] = userInfo
+
+	token, err := GenerateTestToken(userID, supabaseUID, m.config.JWTSecret)
+	if err != nil {
+		return nil, gerror.Wrap(err, "Mock JWT generation failed")
+	}
+
+	return &v1User.AppleAuthRes{
+		Token:    token,
+		UserInfo: userInfo,
+	}, nil
+}
+
 func (m *MockService) GetUserInfo(ctx context.Context, req *v1User.GetUserInfoReq) (*v1User.GetUserInfoRes, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -320,6 +358,8 @@ func (m *MockService) GetPsycheProfile(ctx context.Context, req *v1User.GetPsych
 		IntegrationLevel:       "moderate",
 		IntegrationDescription: "profileIntegrationInsightModerate",
 		IntegrationInsightKey:  "profileIntegrationInsightModerate",
+		HasProfileData:         true,
+		CompletedDreamCount:    3,
 		IntegrationSignals: []v1User.PsycheProfileSignal{
 			{Type: "dream_count", Value: "completed", Count: 3},
 			{Type: "symbol", Value: "guide", Count: 2},

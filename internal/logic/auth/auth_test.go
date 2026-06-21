@@ -28,7 +28,7 @@ func TestUserSettingsValidationHelpers(t *testing.T) {
 
 func TestPsycheIntegration(t *testing.T) {
 	score, level, key, signals := psycheIntegration(nil)
-	if score != 20 || level != "low" {
+	if score != 0 || level != "low" {
 		t.Fatalf("empty profile = %v/%s", score, level)
 	}
 	if key != "profileIntegrationInsightLow" || len(signals) == 0 {

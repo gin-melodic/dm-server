@@ -82,17 +82,13 @@ func (s *sQwen) analyzeDreamStream(ctx context.Context, prompt, dreamContent str
 	}
 
 	baseURL := qwenConfig.MapStrStr()["base_url"]
-	model := qwenConfig.MapStrStr()["model"]
+	model := configuredModel(ctx, qwenConfig.MapStrStr()["model"], "qwen3.6-flash")
 	apiKey := qwenConfig.MapStrStr()["api_key"]
 
 	// Set default values
 	if baseURL == "" {
 		baseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 	}
-	if model == "" {
-		model = "qwen3.6-flash"
-	}
-
 	// apiUrl
 	apiUrl := fmt.Sprintf("%s/chat/completions", baseURL)
 

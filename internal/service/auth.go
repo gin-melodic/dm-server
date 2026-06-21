@@ -21,6 +21,8 @@ type (
 		// Email Login via Supabase token
 		// ─────────────────────────────────────────────────────────
 		EmailLogin(ctx context.Context, req *v1.EmailAuthReq) (*v1.EmailAuthRes, error)
+		// AppleLogin exchanges a verified Supabase Apple session for a server JWT.
+		AppleLogin(ctx context.Context, req *v1.AppleAuthReq) (*v1.AppleAuthRes, error)
 		// GetUserInfo Get user information
 		// Used after login to get detailed user info
 		GetUserInfo(ctx context.Context, req *v1.GetUserInfoReq) (*v1.GetUserInfoRes, error)

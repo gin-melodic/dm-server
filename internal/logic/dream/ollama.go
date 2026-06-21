@@ -42,16 +42,12 @@ func (s *sOllama) analyzeDreamStream(ctx context.Context, prompt, dreamContent s
 	}
 
 	baseURL := ollamaConfig.MapStrStr()["base_url"]
-	model := ollamaConfig.MapStrStr()["model"]
+	model := configuredModel(ctx, ollamaConfig.MapStrStr()["model"], "qwq:32b")
 
 	// Set default values
 	if baseURL == "" {
 		baseURL = "http://localhost:11434"
 	}
-	if model == "" {
-		model = "qwq:32b"
-	}
-
 	// apiUrl
 	apiUrl := fmt.Sprintf("%s/api/generate", baseURL)
 

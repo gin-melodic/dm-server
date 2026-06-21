@@ -107,7 +107,19 @@ openrouter:
   base_url: "https://openrouter.ai/api/v1"
   # model
   model: "qwen/qwen3-235b-a22b:free"
+  # Optional model rotation list. When set, models are tried in order on 429.
+  # The legacy single "model" value remains supported when this is omitted.
+  # models:
+  #   - "qwen/qwen3-235b-a22b:free"
+  #   - "meta-llama/llama-3.1-8b-instruct:free"
   # API Key
   api_key: "sk-xxxx"
   # request timeout(seconds)
   timeout: 300
+
+groq:
+  base_url: "https://api.groq.com/openai/v1"
+  api_key: "gsk_xxxx"
+  timeout: 300
+  models: 
+    - "llama-3.3-70b-versatile"

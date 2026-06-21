@@ -1137,6 +1137,13 @@
           "integration_description": {
             "type": "string"
           },
+          "has_profile_data": {
+            "type": "boolean"
+          },
+          "completed_dream_count": {
+            "type": "integer",
+            "format": "int32"
+          },
           "dominant_archetype": {
             "type": "string"
           },
@@ -1149,6 +1156,8 @@
           "integration_score",
           "integration_level",
           "integration_description",
+          "has_profile_data",
+          "completed_dream_count",
           "dominant_archetype",
           "updated_at"
         ],
