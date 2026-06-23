@@ -19,9 +19,11 @@ Go 1.25 · GoFrame v2 · PostgreSQL 18.4 · WebSocket · JWT
 
 **Prerequisites:** Go 1.25+, PostgreSQL 18.4
 
-1. **Start PostgreSQL with Docker Compose:**
+1. **Start PostgreSQL:**
    ```bash
-   docker-compose up -d
+   # Container deployment is managed by the parent repository's unified Compose config.
+   cd ..
+   docker compose up -d postgres
    ```
 
 2. **Configure the application:**
