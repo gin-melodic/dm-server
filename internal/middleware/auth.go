@@ -4,6 +4,7 @@ import (
 	"context"
 	"dm-server/internal/consts"
 	"dm-server/internal/service"
+	"dm-server/internal/utility/authdiag"
 	"net/url"
 	"strings"
 
@@ -21,8 +22,6 @@ func Auth(r *ghttp.Request) {
 		return
 	}
 
-	glog.Infof(context.Background(), "Auth: header: %s", r.Header.Get("X-Dev-Token"))
-
 	// Passby from dev tool
 	// Only in `development` env
 	if g.Cfg().MustGet(context.Background(), "env", "production").String() == "development" {
@@ -37,6 +36,7 @@ func Auth(r *ghttp.Request) {
 	// Get Authorization header
 	authorization := r.Header.Get("Authorization")
 	if authorization == "" {
+		glog.Warningf(r.Context(), "Auth rejected method=%s path=%s reason=missing_authorization", r.Method, path)
 		r.Response.Status = 401
 		r.Response.WriteJsonExit(ghttp.DefaultHandlerResponse{
 			Code:    401,
@@ -45,9 +45,10 @@ func Auth(r *ghttp.Request) {
 		return
 	}
 
-	// Extract token
-	tokenString := strings.TrimPrefix(authorization, "Bearer ")
-	if tokenString == authorization {
+	// Extract token. Accept the scheme case-insensitively and normalize spaces.
+	authorizationParts := strings.Fields(authorization)
+	if len(authorizationParts) != 2 || !strings.EqualFold(authorizationParts[0], "Bearer") {
+		glog.Warningf(r.Context(), "Auth rejected method=%s path=%s reason=invalid_bearer_format", r.Method, path)
 		r.Response.Status = 401
 		r.Response.WriteJsonExit(ghttp.DefaultHandlerResponse{
 			Code:    401,
@@ -55,6 +56,8 @@ func Auth(r *ghttp.Request) {
 		})
 		return
 	}
+	tokenString := authorizationParts[1]
+	glog.Infof(r.Context(), "Auth received method=%s path=%s %s", r.Method, path, authdiag.TokenSummary(tokenString))
 
 	// Verify token
 	claims, err := service.Auth().VerifyJWT(r.Context(), tokenString)

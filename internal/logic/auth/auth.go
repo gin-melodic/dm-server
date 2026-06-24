@@ -10,6 +10,7 @@ import (
 	"dm-server/internal/model"
 	"dm-server/internal/model/entity"
 	"dm-server/internal/service"
+	"dm-server/internal/utility/authdiag"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -100,8 +101,6 @@ func (s *sAuth) WechatLogin(ctx context.Context, req *v1.WechatAuthReq) (*v1.Wec
 	if err != nil {
 		return nil, gerror.Wrap(err, "Failed to generate JWT token")
 	}
-	glog.Infof(ctx, "Generate JWT token: %s", token)
-
 	return &v1.WechatAuthRes{
 		OpenId:   openid,
 		Token:    token,
@@ -1003,8 +1002,15 @@ func (s *sAuth) getOpenidFromWechat(ctx context.Context, code string) (string, e
 
 // generateServerJWT issue server JWT after auth
 func (s *sAuth) generateServerJWT(ctx context.Context, userID uint64, supabaseUID, openid, provider string) (string, error) {
-	secret := g.Cfg().MustGet(ctx, "jwt.secret").String()
+	secret := strings.TrimSpace(g.Cfg().MustGet(ctx, "jwt.secret").String())
 	timeout := g.Cfg().MustGet(ctx, "jwt.timeout").Int()
+	if secret == "" {
+		return "", gerror.New("JWT secret is not configured")
+	}
+	if timeout <= 0 {
+		return "", gerror.Newf("JWT timeout must be positive, got %d", timeout)
+	}
+
 	exp := time.Now().Add(time.Duration(timeout) * time.Second).Unix()
 	claims := jwt.MapClaims{
 		"userId":      userID,
@@ -1015,16 +1021,42 @@ func (s *sAuth) generateServerJWT(ctx context.Context, userID uint64, supabaseUI
 		"iat":         time.Now().Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(secret))
+	tokenString, err := token.SignedString([]byte(secret))
+	if err != nil {
+		return "", err
+	}
+
+	glog.Infof(
+		ctx,
+		"Issued server JWT userId=%d provider=%s %s secretFingerprint=%s timeoutSeconds=%d",
+		userID,
+		provider,
+		authdiag.TokenSummary(tokenString),
+		authdiag.Fingerprint(secret),
+		timeout,
+	)
+	return tokenString, nil
 }
 
 // VerifyJWT Verify JWT token
 func (s *sAuth) VerifyJWT(ctx context.Context, tokenString string) (*model.AuthClaims, error) {
-	secret := g.Cfg().MustGet(ctx, "jwt.secret").String()
+	secret := strings.TrimSpace(g.Cfg().MustGet(ctx, "jwt.secret").String())
+	if secret == "" {
+		glog.Error(ctx, "JWT verification unavailable: secret is not configured")
+		return nil, gerror.New("Invalid token")
+	}
+
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		return []byte(secret), nil
-	})
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 	if err != nil || !token.Valid {
+		glog.Warningf(
+			ctx,
+			"JWT verification failed %s secretFingerprint=%s error=%v",
+			authdiag.TokenSummary(tokenString),
+			authdiag.Fingerprint(secret),
+			err,
+		)
 		return nil, gerror.New("Invalid token")
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)

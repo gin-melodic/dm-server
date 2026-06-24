@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gcfg"
@@ -9,6 +10,13 @@ import (
 )
 
 func RewriteConfigFromEnv() {
+	if jwtSecret := strings.TrimSpace(genv.Get("JWT_SECRET", "").String()); jwtSecret != "" {
+		g.Cfg().GetAdapter().(*gcfg.AdapterFile).Set("jwt.secret", jwtSecret)
+	}
+	if jwtTimeout := genv.Get("JWT_TIMEOUT", 0).Int(); jwtTimeout > 0 {
+		g.Cfg().GetAdapter().(*gcfg.AdapterFile).Set("jwt.timeout", jwtTimeout)
+	}
+
 	if projectURL := genv.Get("SUPABASE_PROJECT_URL", "").String(); projectURL != "" {
 		g.Cfg().GetAdapter().(*gcfg.AdapterFile).Set("supabase.project_url", projectURL)
 	}
