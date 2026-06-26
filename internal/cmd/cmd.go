@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"dm-server/internal/config"
 	"dm-server/internal/controller/devtool"
 	"dm-server/internal/router"
@@ -20,6 +21,8 @@ var (
 		Func: func(ctx context.Context, parser *gcmd.Parser) (err error) {
 			// Get config from env
 			config.RewriteConfigFromEnv()
+
+			fmt.Printf("AI_SERVICE: %s\n", g.Cfg().MustGet(ctx, "ai_service").String())
 
 			s := g.Server()
 

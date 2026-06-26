@@ -27,6 +27,10 @@ func RewriteConfigFromEnv() {
 		g.Cfg().GetAdapter().(*gcfg.AdapterFile).Set("supabase.secret_key", secretKey)
 	}
 
+	if aiService := strings.TrimSpace(genv.Get("AI_SERVICE", "").String()); aiService != "" {
+		g.Cfg().GetAdapter().(*gcfg.AdapterFile).Set("ai_service", aiService)
+	}
+
 	// if env is empty, skip
 	if genv.Get("PORT", "").String() == "" || genv.Get("DB_USER", "").String() == "" {
 		return
