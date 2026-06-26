@@ -15,14 +15,19 @@ import (
 	"github.com/gogf/gf/v2/os/gcfg"
 )
 
-func TestStreamDreamUsesL1InterpretationWithoutLLM(t *testing.T) {
+func TestStreamDreamIgnoresL1InterpretationForFinalAnswer(t *testing.T) {
 	metadata := &consts.DreamStreamMetadata{}
 	ctx := context.WithValue(dreamStreamTestContext(), consts.CtxDreamStreamMetadata, metadata)
 	var ollamaCalled bool
 
 	knowledgeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/interpret_dream" {
+		if r.URL.Path != "/api/v1/interpret_dream" && r.URL.Path != "/api/v1/search" {
 			t.Fatalf("unexpected knowledge path: %s", r.URL.Path)
+		}
+		if r.URL.Path == "/api/v1/search" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[]`))
+			return
 		}
 		var req interpretDreamRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -48,7 +53,8 @@ func TestStreamDreamUsesL1InterpretationWithoutLLM(t *testing.T) {
 
 	ollamaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ollamaCalled = true
-		w.WriteHeader(http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"response":"LLM output","done":true}` + "\n"))
 	}))
 	defer ollamaServer.Close()
 	configureDreamStreamTest(t, knowledgeServer.URL, ollamaServer.URL)
@@ -57,11 +63,11 @@ func TestStreamDreamUsesL1InterpretationWithoutLLM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StreamDream failed: %v", err)
 	}
-	if got := collectStream(ch); got != "L1 assembled interpretation" {
+	if got := collectStream(ch); got != "LLM output" {
 		t.Fatalf("unexpected stream output: %q", got)
 	}
-	if ollamaCalled {
-		t.Fatal("expected L1 hit to skip LLM")
+	if !ollamaCalled {
+		t.Fatal("expected L1 hit to still call LLM")
 	}
 	if metadata.InferenceLevel != "L1" || len(metadata.SymbolsDetected) != 2 || metadata.SymbolsDetected[0] != "水" {
 		t.Fatalf("expected L1 metadata symbols, got %+v", metadata)

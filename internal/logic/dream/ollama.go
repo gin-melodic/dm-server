@@ -69,7 +69,7 @@ func (s *sOllama) analyzeDreamStream(ctx context.Context, prompt, dreamContent s
 
 	// Construct full prompt (sent to LLM, keep in Chinese for the model)
 	fullPrompt := fmt.Sprintf("%s\n\n用户的梦境内容如下：\n%s", prompt, dreamContent)
-	glog.Infof(ctx, "Prompt: %s", previewRunes(fullPrompt, 100))
+	glog.Infof(ctx, "Prompt: %s", previewRunes(fullPrompt, 1000))
 
 	// Construct request
 	request := sOllamaRequest{

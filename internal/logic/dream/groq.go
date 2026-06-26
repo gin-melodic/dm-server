@@ -73,7 +73,7 @@ func (s *sGroq) analyzeDreamStream(ctx context.Context, prompt, dreamContent str
 	glog.Debugf(ctx, "API Key is empty: %t", apiKey == "")
 
 	fullPrompt := fmt.Sprintf("%s\n\n用户梦境内容：\n%s", prompt, dreamContent)
-	glog.Infof(ctx, "Prompt: %s", previewRunes(fullPrompt, 100))
+	glog.Infof(ctx, "Prompt: %s", previewRunes(fullPrompt, 1000))
 	glog.Debugf(ctx, "Full request URL: %s", apiURL)
 
 	request := sGroqRequest{

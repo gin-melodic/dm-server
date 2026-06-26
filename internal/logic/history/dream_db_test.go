@@ -87,18 +87,12 @@ func TestHistoryLogicDatabaseFlow(t *testing.T) {
 	svc := New()
 
 	var observedEmotionTags []string
-	var sunkSymbols []string
 	var sinkCalled bool
-	var sinkSourceDream string
-	var sinkInterpretation string
 	service.RegisterDream(fakeDreamStream{
-		chunks:             []string{"# 「清晨之门」\n\n", "## 综合小结\n醒来后感觉轻松。"},
-		emotionTags:        &observedEmotionTags,
-		symbols:            []string{"门", "光"},
-		sunkSymbols:        &sunkSymbols,
-		sinkCalled:         &sinkCalled,
-		sinkSourceDream:    &sinkSourceDream,
-		sinkInterpretation: &sinkInterpretation,
+		chunks:      []string{"# 「清晨之门」\n\n", "## 综合小结\n醒来后感觉轻松。"},
+		emotionTags: &observedEmotionTags,
+		symbols:     []string{"门", "光"},
+		sinkCalled:  &sinkCalled,
 	})
 	analyzeRes, err := svc.CreateDreamAnalysis(userCtx, &v1.CreateDreamAnalysisReq{
 		Content: "我梦见自己穿过一扇发光的门",
@@ -120,8 +114,8 @@ func TestHistoryLogicDatabaseFlow(t *testing.T) {
 	if len(analyzeRes.Dream.Symbols) != 2 || analyzeRes.Dream.Symbols[0] != "门" || analyzeRes.Analysis.Symbols[1] != "光" {
 		t.Fatalf("expected symbols to be returned, got dream=%#v analysis=%#v", analyzeRes.Dream.Symbols, analyzeRes.Analysis.Symbols)
 	}
-	if !sinkCalled || len(sunkSymbols) != 2 || sunkSymbols[0] != "门" || sinkSourceDream == "" || !strings.Contains(sinkInterpretation, "醒来后感觉轻松") {
-		t.Fatalf("expected final analysis to sink symbols, called=%v symbols=%#v source=%q interpretation=%q", sinkCalled, sunkSymbols, sinkSourceDream, sinkInterpretation)
+	if sinkCalled {
+		t.Fatal("symbol-level L1 cache should not be written after final analysis")
 	}
 
 	detail, err := svc.GetDream(userCtx, &v1.GetDreamReq{Id: analyzeRes.Dream.Id})

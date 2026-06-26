@@ -95,7 +95,7 @@ func (s *sHunyuan) analyzeDreamStream(ctx context.Context, prompt, dreamContent 
 	apiURL := baseURL + "/chat/completions"
 	glog.Infof(ctx, "Tencent TokenHub base URL: %s", baseURL)
 	glog.Infof(ctx, "Tencent TokenHub model: %s", modelName)
-	glog.Infof(ctx, "Prompt: %s", previewRunes(prompt+"\n\n"+dreamContent, 100))
+	glog.Infof(ctx, "Prompt: %s", previewRunes(prompt+"\n\n"+dreamContent, 1000))
 
 	maxRetries := 3
 	retryDelay := 2 * time.Second

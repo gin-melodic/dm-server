@@ -15,12 +15,22 @@ type DreamStreamMetadata struct {
 	InferenceLevel  string
 }
 
+type DreamRelatedContextItem struct {
+	Id         uint64
+	Date       string
+	Summary    string
+	Emotion    string
+	Symbols    []string
+	Similarity float64
+}
+
 const (
 	CtxUserId              ContextKey = "userId"
 	CtxOpenId              ContextKey = "openId"
 	CtxSupabaseUid         ContextKey = "supabaseUid"
 	CtxDreamEmotionTags    ContextKey = "dreamEmotionTags"
 	CtxDreamStreamMetadata ContextKey = "dreamStreamMetadata"
+	CtxDreamRelatedContext ContextKey = "dreamRelatedContext"
 )
 
 const (

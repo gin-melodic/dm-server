@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	v1 "dm-server/api/history/v1"
 )
 
 func TestValidateDreamContent(t *testing.T) {
@@ -31,6 +33,32 @@ func TestExtractAnalysisTitleAndBody(t *testing.T) {
 	title, _ = extractAnalysisTitleAndBody(longTitle)
 	if utf8.RuneCountInString(title) != maxDreamTitleRunes {
 		t.Fatalf("expected title to be trimmed to %d runes, got %d", maxDreamTitleRunes, utf8.RuneCountInString(title))
+	}
+
+	title, body = extractAnalysisTitleAndBody("<think>draft title and reasoning</think>\n# 「深海书卷」\n\n真正解析")
+	if title != "深海书卷" || strings.Contains(body, "<think>") || !strings.Contains(body, "真正解析") {
+		t.Fatalf("expected think content to be removed, title=%q body=%q", title, body)
+	}
+}
+
+func TestRelatedDreamScoringAndInsight(t *testing.T) {
+	record := v1.DreamRecord{
+		Id:             7,
+		Content:        "我在海边看到蓝色的光，远处有一本书。",
+		Interpretation: "海、光和书反复出现，提示情绪与记忆的整理。",
+		Emotion:        "anxious",
+		Symbols:        []string{"海", "光", "书"},
+	}
+	score := scoreRelatedDream("深海图书馆里有发光书卷", "anxious", []string{"海", "光", "书"}, record)
+	if score < relatedDreamMinSimilarity {
+		t.Fatalf("expected similar dream to pass threshold, got %.2f", score)
+	}
+	insight := buildRelatedDreamInsight([]v1.RelatedDream{
+		{Symbols: []string{"海", "光"}, EmotionTags: []string{"anxious"}},
+		{Symbols: []string{"海", "书"}, EmotionTags: []string{"anxious"}},
+	}, []string{"海", "光"}, "anxious")
+	if !strings.Contains(insight, "海") || !strings.Contains(insight, "焦虑") {
+		t.Fatalf("unexpected insight: %q", insight)
 	}
 }
 

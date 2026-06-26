@@ -61,13 +61,21 @@ const (
 	dreamStatusCompleted  = "completed"
 	dreamStatusError      = "error"
 
-	defaultConfidenceScore = 0.86
-	analysisConfidence     = 0.88
-	maxDreamTitleRunes     = 128
-	maxDreamContentRunes   = 10000
-	homeRecentLimit        = 30
-	homeWaveDays           = 30
+	defaultConfidenceScore     = 0.86
+	analysisConfidence         = 0.88
+	maxDreamTitleRunes         = 128
+	maxDreamContentRunes       = 10000
+	homeRecentLimit            = 30
+	homeWaveDays               = 30
+	relatedDreamCandidateLimit = 20
+	relatedDreamDisplayLimit   = 3
+	relatedDreamMinSimilarity  = 0.60
 )
+
+type relatedDreamCandidate struct {
+	Record     v1.DreamRecord
+	Similarity float64
+}
 
 var allowedDreamEmotions = map[string]struct{}{
 	"neutral":  {},
@@ -325,8 +333,14 @@ func (s *sHistory) CreateDreamAnalysis(ctx context.Context, req *v1.CreateDreamA
 	streamMetadata := &consts.DreamStreamMetadata{
 		SymbolsDetected: normalizeDreamSymbols(symbols),
 	}
+	relatedDreams, err := s.findRelatedDreams(ctx, userID, dreamID, req.Content, emotion, streamMetadata.SymbolsDetected)
+	if err != nil {
+		glog.Warningf(ctx, "历史梦境关联检索失败: %v", err)
+	}
+	relatedContext := buildRelatedDreamContext(relatedDreams)
 	streamCtx := context.WithValue(ctx, consts.CtxDreamEmotionTags, emotionTags)
 	streamCtx = context.WithValue(streamCtx, consts.CtxDreamStreamMetadata, streamMetadata)
+	streamCtx = context.WithValue(streamCtx, consts.CtxDreamRelatedContext, relatedContext)
 	ch, err := service.Dream().StreamDream(streamCtx, req.Content)
 	if err != nil {
 		updateAnalysisErrorDetached(ctx, dreamID, sessionID, err.Error())
@@ -397,20 +411,17 @@ func (s *sHistory) CreateDreamAnalysis(ctx context.Context, req *v1.CreateDreamA
 		updateAnalysisErrorDetached(ctx, dreamID, sessionID, err.Error())
 		return nil, err
 	}
-	if streamMetadata.InferenceLevel != "L1" && len(finalSymbols) > 0 {
-		if err := service.Dream().SinkDreamSymbolCache(ctx, fmt.Sprintf("%d", userID), finalSymbols, interpretation, fmt.Sprintf("%d", dreamID)); err != nil {
-			glog.Warningf(ctx, "知识库L1符号缓存回写失败: %v", err)
-		}
-	}
-
 	record, err := s.getDreamRecord(ctx, userID, dreamID)
 	if err != nil {
 		return nil, err
 	}
 	analysis := buildAnalysisResult(interpretation, record, locale)
+	insight := buildRelatedDreamInsight(relatedDreams, finalSymbols, emotion)
 	return &v1.CreateDreamAnalysisRes{
-		Dream:    record,
-		Analysis: analysis,
+		Dream:         record,
+		Analysis:      analysis,
+		RelatedDreams: relatedDreams,
+		Insight:       insight,
 		Steps: []v1.DreamAnalysisStep{
 			{Key: "record", Title: "Record dream", Description: "Dream content saved", Status: "completed"},
 			{Key: "analyze", Title: "Analyze symbols", Description: "Dream interpretation generated", Status: "completed"},
@@ -637,6 +648,260 @@ func (s *sHistory) listDreamRecords(ctx context.Context, userID uint64, limit in
 	return records, nil
 }
 
+func (s *sHistory) findRelatedDreams(
+	ctx context.Context,
+	userID uint64,
+	currentDreamID uint64,
+	content string,
+	emotion string,
+	symbols []string,
+) ([]v1.RelatedDream, error) {
+	var dreams []dreamRow
+	err := g.DB().Model("dreams").
+		Where("user_id = ? AND id <> ? AND deleted_at IS NULL AND status = ?", userID, currentDreamID, dreamStatusCompleted).
+		OrderDesc("created_at").
+		Limit(relatedDreamCandidateLimit).
+		Scan(&dreams)
+	if err != nil {
+		return nil, gerror.Wrap(err, "failed to query related dream candidates")
+	}
+
+	candidates := make([]relatedDreamCandidate, 0, len(dreams))
+	for _, dream := range dreams {
+		record := buildDreamRecordWithLatestAnalysis(ctx, dream)
+		score := scoreRelatedDream(content, emotion, symbols, *record)
+		if score < relatedDreamMinSimilarity {
+			continue
+		}
+		candidates = append(candidates, relatedDreamCandidate{
+			Record:     *record,
+			Similarity: score,
+		})
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].Similarity == candidates[j].Similarity {
+			return candidates[i].Record.CreatedAt > candidates[j].Record.CreatedAt
+		}
+		return candidates[i].Similarity > candidates[j].Similarity
+	})
+	if len(candidates) > relatedDreamDisplayLimit {
+		candidates = candidates[:relatedDreamDisplayLimit]
+	}
+
+	related := make([]v1.RelatedDream, 0, len(candidates))
+	for _, candidate := range candidates {
+		record := candidate.Record
+		related = append(related, v1.RelatedDream{
+			Id:          record.Id,
+			Date:        displayDreamDate(record.CreatedAt),
+			Similarity:  roundSimilarity(candidate.Similarity),
+			EmotionTags: filterHistoryEmotionTags(record.Emotion),
+			Symbols:     firstStrings(record.Symbols, 3),
+			Summary:     summarizeRelatedDream(record),
+		})
+	}
+	return related, nil
+}
+
+func scoreRelatedDream(content string, emotion string, symbols []string, record v1.DreamRecord) float64 {
+	currentSymbols := normalizeDreamSymbols(symbols)
+	historySymbols := normalizeDreamSymbols(record.Symbols)
+	symbolScore := overlapRatio(currentSymbols, historySymbols)
+	emotionScore := 0.0
+	if strings.TrimSpace(emotion) != "" && strings.EqualFold(strings.TrimSpace(emotion), strings.TrimSpace(record.Emotion)) {
+		emotionScore = 1
+	}
+	tokenScore := overlapRatio(dreamSimilarityTokens(content, currentSymbols), dreamSimilarityTokens(record.Content+" "+record.Interpretation, historySymbols))
+	score := symbolScore*0.58 + tokenScore*0.22 + emotionScore*0.20
+	if symbolScore >= 0.67 && emotionScore > 0 {
+		score += 0.08
+	}
+	if score > 0.99 {
+		return 0.99
+	}
+	return score
+}
+
+func buildRelatedDreamContext(related []v1.RelatedDream) []consts.DreamRelatedContextItem {
+	items := make([]consts.DreamRelatedContextItem, 0, len(related))
+	for _, dream := range related {
+		emotion := ""
+		if len(dream.EmotionTags) > 0 {
+			emotion = dream.EmotionTags[0]
+		}
+		items = append(items, consts.DreamRelatedContextItem{
+			Id:         dream.Id,
+			Date:       dream.Date,
+			Summary:    dream.Summary,
+			Emotion:    emotion,
+			Symbols:    dream.Symbols,
+			Similarity: dream.Similarity,
+		})
+	}
+	return items
+}
+
+func buildRelatedDreamInsight(related []v1.RelatedDream, currentSymbols []string, emotion string) string {
+	if len(related) < 2 {
+		return ""
+	}
+	counts := map[string]int{}
+	for _, symbol := range currentSymbols {
+		counts[symbol] = 1
+	}
+	for _, dream := range related {
+		for _, symbol := range dream.Symbols {
+			if symbol != "" {
+				counts[symbol]++
+			}
+		}
+	}
+	bestSymbol := ""
+	bestCount := 0
+	for symbol, count := range counts {
+		if count > bestCount {
+			bestSymbol = symbol
+			bestCount = count
+		}
+	}
+	if bestSymbol != "" && bestCount >= 2 {
+		return fmt.Sprintf("“%s”已在你的多个梦里回响，并常与%s情绪相连。", bestSymbol, emotionLabel(emotion))
+	}
+	return fmt.Sprintf("这些梦共享相近的%s情绪和场景结构，值得继续观察。", emotionLabel(emotion))
+}
+
+func summarizeRelatedDream(record v1.DreamRecord) string {
+	for _, value := range []string{record.Title, firstSentence(record.Interpretation), firstSentence(record.Content)} {
+		value = strings.TrimSpace(sanitizeAnalysisText(value))
+		if value == "" {
+			continue
+		}
+		return previewRunes(value, 42)
+	}
+	return "一条与你当前梦境相近的历史记录"
+}
+
+func dreamSimilarityTokens(text string, symbols []string) []string {
+	tokens := normalizeDreamSymbols(symbols)
+	seen := make(map[string]struct{}, len(tokens)+64)
+	for _, token := range tokens {
+		seen[token] = struct{}{}
+	}
+	cjk := regexp.MustCompile(`[\p{Han}A-Za-z0-9]+`).FindAllString(text, -1)
+	for _, part := range cjk {
+		runes := []rune(part)
+		if len(runes) <= 1 {
+			continue
+		}
+		if len(runes) <= 4 {
+			if _, ok := seen[part]; !ok {
+				tokens = append(tokens, part)
+				seen[part] = struct{}{}
+			}
+			continue
+		}
+		for i := 0; i+2 <= len(runes) && len(tokens) < 80; i++ {
+			token := string(runes[i : i+2])
+			if _, ok := seen[token]; ok {
+				continue
+			}
+			tokens = append(tokens, token)
+			seen[token] = struct{}{}
+		}
+	}
+	return tokens
+}
+
+func overlapRatio(a []string, b []string) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	set := make(map[string]struct{}, len(a))
+	for _, value := range a {
+		if value != "" {
+			set[value] = struct{}{}
+		}
+	}
+	overlap := 0
+	for _, value := range b {
+		if _, ok := set[value]; ok {
+			overlap++
+		}
+	}
+	denominator := len(a)
+	if len(b) < denominator {
+		denominator = len(b)
+	}
+	if denominator == 0 {
+		return 0
+	}
+	return float64(overlap) / float64(denominator)
+}
+
+func firstStrings(values []string, limit int) []string {
+	if len(values) <= limit {
+		return values
+	}
+	return append([]string{}, values[:limit]...)
+}
+
+func firstSentence(text string) string {
+	text = strings.TrimSpace(sanitizeAnalysisText(text))
+	if text == "" {
+		return ""
+	}
+	parts := regexp.MustCompile(`[。！？!?；;\n]+`).Split(text, 2)
+	if len(parts) == 0 {
+		return text
+	}
+	return strings.TrimSpace(parts[0])
+}
+
+func previewRunes(value string, limit int) string {
+	runes := []rune(strings.TrimSpace(value))
+	if limit <= 0 || len(runes) <= limit {
+		return string(runes)
+	}
+	if limit <= 1 {
+		return string(runes[:limit])
+	}
+	return string(runes[:limit-1]) + "…"
+}
+
+func displayDreamDate(value string) string {
+	if len(value) >= 10 {
+		return value[:10]
+	}
+	return value
+}
+
+func roundSimilarity(value float64) float64 {
+	return float64(int(value*100+0.5)) / 100
+}
+
+func emotionLabel(emotion string) string {
+	switch strings.ToLower(strings.TrimSpace(emotion)) {
+	case "happy":
+		return "愉悦"
+	case "sad":
+		return "低落"
+	case "angry":
+		return "愤怒"
+	case "fear":
+		return "恐惧"
+	case "anxious":
+		return "焦虑"
+	case "excited":
+		return "兴奋"
+	case "peaceful":
+		return "平静"
+	case "confused":
+		return "困惑"
+	default:
+		return "中性"
+	}
+}
+
 func getContextUserID(ctx context.Context) (uint64, error) {
 	userIdVal := ctx.Value(consts.CtxUserId)
 	if userIdVal == nil {
@@ -826,7 +1091,7 @@ func updateAnalysisErrorDetached(ctx context.Context, dreamID, sessionID uint64,
 }
 
 func extractAnalysisTitleAndBody(text string) (string, string) {
-	clean := strings.TrimSpace(text)
+	clean := strings.TrimSpace(sanitizeAnalysisText(text))
 	if clean == "" {
 		return "Dream analysis", ""
 	}
@@ -851,6 +1116,13 @@ func extractAnalysisTitleAndBody(text string) (string, string) {
 		title = string([]rune(title)[:maxDreamTitleRunes])
 	}
 	return title, clean
+}
+
+func sanitizeAnalysisText(text string) string {
+	clean := regexp.MustCompile(`(?s)<think>.*?</think>`).ReplaceAllString(text, "")
+	clean = regexp.MustCompile(`(?s)<think>.*`).ReplaceAllString(clean, "")
+	clean = strings.ReplaceAll(clean, "</think>", "")
+	return strings.TrimSpace(clean)
 }
 
 func deriveDreamKeywords(content, interpretation, emotion string) []string {

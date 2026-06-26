@@ -96,6 +96,15 @@ type DreamAnalysisResult struct {
 	Locale          string   `json:"locale"`
 }
 
+type RelatedDream struct {
+	Id          uint64   `json:"id"`
+	Date        string   `json:"date"`
+	Similarity  float64  `json:"similarity"`
+	EmotionTags []string `json:"emotionTags"`
+	Symbols     []string `json:"symbols"`
+	Summary     string   `json:"summary"`
+}
+
 type DreamAnalysisStep struct {
 	Key         string `json:"key"`
 	Title       string `json:"title"`
@@ -104,9 +113,11 @@ type DreamAnalysisStep struct {
 }
 
 type CreateDreamAnalysisRes struct {
-	Dream    *DreamRecord         `json:"dream"`
-	Analysis *DreamAnalysisResult `json:"analysis"`
-	Steps    []DreamAnalysisStep  `json:"steps"`
+	Dream         *DreamRecord         `json:"dream"`
+	Analysis      *DreamAnalysisResult `json:"analysis"`
+	Steps         []DreamAnalysisStep  `json:"steps"`
+	RelatedDreams []RelatedDream       `json:"relatedDreams"`
+	Insight       string               `json:"insight"`
 }
 
 // Set dream favorite status
