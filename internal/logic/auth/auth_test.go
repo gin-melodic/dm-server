@@ -12,6 +12,12 @@ func TestUserSettingsValidationHelpers(t *testing.T) {
 	if isValidLanguageTag("../bad") {
 		t.Fatal("expected invalid language tag to fail")
 	}
+	if normalizeSupportedLanguageTag("zh-CN") != "zh-Hans" || normalizeSupportedLanguageTag("zh-TW") != "zh-Hant" || normalizeSupportedLanguageTag("en-US") != "en" {
+		t.Fatal("expected supported language aliases to normalize")
+	}
+	if normalizeSupportedLanguageTag("fr-FR") != "" {
+		t.Fatal("expected unsupported language to fail")
+	}
 	if !isValidReminderTime("08:30") || !isValidReminderTime("23:59") {
 		t.Fatal("expected valid reminder times")
 	}

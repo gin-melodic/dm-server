@@ -19,13 +19,17 @@ func (s *sDream) analyzeDreamStream(ctx context.Context, prompt, dreamContent st
 	if err == nil {
 		if aiConfig.IsSlice() {
 			// If array config, use all services
-			services := aiConfig.Strings()
+			services := normalizeAIServiceList(aiConfig.Strings())
 			if len(services) > 0 {
 				aiServices = services
 			}
 		} else if aiConfig.String() != "" {
-			// If string config, use the service
-			aiServices = []string{aiConfig.String()}
+			// If string config, use the service. Comma-separated env values are
+			// accepted for VPS deployments, for example: groq,openrouter.
+			services := normalizeAIServiceList([]string{aiConfig.String()})
+			if len(services) > 0 {
+				aiServices = services
+			}
 		}
 	}
 
@@ -134,6 +138,18 @@ func (s *sDream) analyzeDreamStream(ctx context.Context, prompt, dreamContent st
 }
 
 type modelOverrideContextKey struct{}
+
+func normalizeAIServiceList(configured []string) []string {
+	services := make([]string, 0, len(configured))
+	for _, entry := range configured {
+		for _, service := range strings.Split(entry, ",") {
+			if service = strings.TrimSpace(service); service != "" {
+				services = append(services, service)
+			}
+		}
+	}
+	return services
+}
 
 // configuredProviderModels returns the provider's rotation list. An absent list
 // preserves the legacy behavior where the adapter reads its single model value.

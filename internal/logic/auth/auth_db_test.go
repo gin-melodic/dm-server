@@ -33,7 +33,7 @@ func TestUserLogicDatabaseFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetUserSettings defaults failed: %v", err)
 	}
-	if defaults.Language != "zh-CN" || defaults.PrivacyMode != "private" || defaults.StorageMode != "local_cache" {
+	if defaults.Language != "en" || defaults.PrivacyMode != "private" || defaults.StorageMode != "local_cache" {
 		t.Fatalf("unexpected defaults: %#v", defaults)
 	}
 
@@ -48,7 +48,7 @@ func TestUserLogicDatabaseFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateUserSettings insert/upsert failed: %v", err)
 	}
-	if updated.Language != "en-US" || updated.DreamReminderTime != "08:30" {
+	if updated.Language != "en" || updated.DreamReminderTime != "08:30" {
 		t.Fatalf("unexpected updated settings: %#v", updated)
 	}
 

@@ -94,7 +94,7 @@ If the new container fails the health check, the script rolls back `DM_SERVER_IM
 
 ### Release `dm-knowledge-service` Only
 
-Use this for Python RAG service logic updates or knowledge-base content/index changes. The script builds, compresses, and uploads only the versioned `dm-knowledge-service` image and recreates just the `dm-knowledge-service` container; it does not upload PostgreSQL or `dm-server` images.
+Use this for Python RAG service logic updates or knowledge-base content/index changes. By default, the script uploads only `dm-knowledge-service/app` into the VPS `dm_knowledge_app` bind mount and recreates just the `dm-knowledge-service` container; it does not rebuild or upload the dependency-heavy image.
 
 For logic-only updates (do not refresh the knowledge-base volume):
 
@@ -108,7 +108,7 @@ DM_KNOWLEDGE_SERVICE_VERSION=v1.2.0 \
 ./scripts/release-dm-knowledge-service-vps.sh
 ```
 
-If this release includes knowledge-base text, pre-built index, or embedding configuration changes in `dm-knowledge-service/data/knowledge_bases`, set the remote `knowledge_data` volume to be re-seeded from the new image:
+If dependencies, Dockerfile, entrypoint, or system packages changed, set `REBUILD_IMAGE=1` to rebuild, compress, upload, and load a new versioned `dm-knowledge-service` image:
 
 ```bash
 cd ..
@@ -117,29 +117,50 @@ VPS_USER=deploy \
 VPS_SSH_PORT=2222 \
 VPS_DEPLOY_DIR=/home/deploy/dm-proj-vps \
 DM_KNOWLEDGE_SERVICE_VERSION=v1.2.0 \
-REFRESH_KNOWLEDGE_DATA=1 \
+REBUILD_IMAGE=1 \
 ./scripts/release-dm-knowledge-service-vps.sh
 ```
 
-`REFRESH_KNOWLEDGE_DATA=1` deletes and recreates only the `dm-proj_knowledge_data` volume; it does not touch the PostgreSQL data or log volumes. For regular logic releases, keep `REFRESH_KNOWLEDGE_DATA=0` to avoid overwriting existing knowledge-base data on the remote host.
+If this release includes knowledge-base text, pre-built index, or embedding configuration changes in `dm-knowledge-service/data`, set `UPLOAD_KNOWLEDGE_DATA=1` to upload a separate `dm-knowledge-service-data-<version>.tar.gz` archive beside the image archive:
+
+```bash
+cd ..
+VPS_HOST=203.0.113.10 \
+VPS_USER=deploy \
+VPS_SSH_PORT=2222 \
+VPS_DEPLOY_DIR=/home/deploy/dm-proj-vps \
+DM_KNOWLEDGE_SERVICE_VERSION=v1.2.0 \
+UPLOAD_KNOWLEDGE_DATA=1 \
+./scripts/release-dm-knowledge-service-vps.sh
+```
+
+Extract it into the VPS deploy directory when you want to replace `./knowledge_data`:
+
+```bash
+cd /home/deploy/dm-proj-vps
+tar -xzf releases/dm-knowledge-service/dm-knowledge-service-data-v1.2.0.tar.gz
+```
+
+This replaces the `knowledge_data` directory used by `docker-compose.vps.yml`; it does not touch PostgreSQL or log volumes. For regular logic releases, leave the existing `knowledge_data` directory in place.
 
 Common variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DM_KNOWLEDGE_SERVICE_VERSION` | UTC timestamp + git revision | Docker image tag |
-| `REFRESH_KNOWLEDGE_DATA` | `0` | Set `1` only for knowledge/index refresh |
+| `DM_KNOWLEDGE_SERVICE_VERSION` | UTC timestamp + git revision | Docker image tag and data archive suffix |
+| `REBUILD_IMAGE` | `0` | Set `1` to rebuild and upload the dependency image |
+| `UPLOAD_KNOWLEDGE_DATA` | `0` | Set `1` to package and upload `dm-knowledge-service/data` |
 | `HEALTH_TIMEOUT` | `180` | RAG startup and health wait seconds |
 | `EMBEDDING_PROVIDER` | `local` | Build-time fallback provider |
-| `INDEX_EMBEDDING_PROVIDER` | from `.env`/Dockerfile | Provider used to prebuild the offline index |
+| `INDEX_EMBEDDING_PROVIDER` | from `.env`/Dockerfile | Runtime index provider setting |
 
-After a successful release, the remote `.env` updates `DM_KNOWLEDGE_SERVICE_IMAGE=dm-knowledge-service:<version>`, then runs:
+After a successful code-only release, the remote `dm_knowledge_app` directory is updated, then Compose recreates the existing image with the new bind-mounted Python code:
 
 ```bash
 docker compose up -d --no-deps --force-recreate dm-knowledge-service
 ```
 
-If the health check fails, the script rolls back to the previous `DM_KNOWLEDGE_SERVICE_IMAGE` and restarts the old container. When `knowledge_data` was refreshed during the release, rollback restores only the container image — it does not automatically restore the previous knowledge volume. Before releasing knowledge-base or index changes in production, back up the volume on the VPS first.
+With `REBUILD_IMAGE=1`, the remote `.env` also updates `DM_KNOWLEDGE_SERVICE_IMAGE=dm-knowledge-service:<version>`. If the health check fails, the script restores the previous `dm_knowledge_app` directory, rolls back to the previous image when an image was rebuilt, and restarts the container. If you manually replaced `knowledge_data`, rollback does not restore knowledge data; back up the directory before replacing production data.
 
 ## 📡 Endpoints
 

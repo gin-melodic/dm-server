@@ -77,6 +77,12 @@ type relatedDreamCandidate struct {
 	Similarity float64
 }
 
+type analysisSummaryRow struct {
+	Id            uint64 `orm:"id"`
+	DreamId       uint64 `orm:"dream_id"`
+	ResultSummary string `orm:"result_summary"`
+}
+
 var allowedDreamEmotions = map[string]struct{}{
 	"neutral":  {},
 	"happy":    {},
@@ -199,7 +205,15 @@ func (s *sHistory) GetDream(ctx context.Context, req *v1.GetDreamReq) (*v1.GetDr
 	if err != nil {
 		return nil, err
 	}
-	res := v1.GetDreamRes(*record)
+	relatedDreams, err := s.findRelatedDreams(ctx, userID, record.Id, record.Content, record.Emotion, record.Symbols)
+	if err != nil {
+		glog.Warningf(ctx, "历史梦境关联检索失败: %v", err)
+	}
+	res := v1.GetDreamRes{
+		DreamRecord:   *record,
+		RelatedDreams: relatedDreams,
+		Insight:       buildRelatedDreamInsight(relatedDreams, record.Symbols, record.Emotion),
+	}
 	return &res, nil
 }
 
@@ -341,36 +355,40 @@ func (s *sHistory) CreateDreamAnalysis(ctx context.Context, req *v1.CreateDreamA
 	streamCtx := context.WithValue(ctx, consts.CtxDreamEmotionTags, emotionTags)
 	streamCtx = context.WithValue(streamCtx, consts.CtxDreamStreamMetadata, streamMetadata)
 	streamCtx = context.WithValue(streamCtx, consts.CtxDreamRelatedContext, relatedContext)
-	ch, err := service.Dream().StreamDream(streamCtx, req.Content)
-	if err != nil {
-		updateAnalysisErrorDetached(ctx, dreamID, sessionID, err.Error())
-		return nil, err
-	}
-	var builder strings.Builder
-	completed := false
-	for event := range ch {
-		switch event.Type {
-		case model.DreamStreamEventDelta:
-			builder.WriteString(event.Content)
-		case model.DreamStreamEventWarning:
-			glog.Warningf(ctx, "梦境分析流警告: reason=%s message=%s", event.FinishReason, event.Message)
-		case model.DreamStreamEventCompleted:
-			completed = true
-		case model.DreamStreamEventError:
-			msg := strings.TrimSpace(event.Message)
-			if msg == "" {
-				msg = "dream analysis stream failed"
+	streamCtx = context.WithValue(streamCtx, consts.CtxDreamResponseLocale, locale)
+	analysisText := strings.TrimSpace(req.AnalysisText)
+	if analysisText == "" {
+		ch, err := service.Dream().StreamDream(streamCtx, req.Content)
+		if err != nil {
+			updateAnalysisErrorDetached(ctx, dreamID, sessionID, err.Error())
+			return nil, err
+		}
+		var builder strings.Builder
+		completed := false
+		for event := range ch {
+			switch event.Type {
+			case model.DreamStreamEventDelta:
+				builder.WriteString(event.Content)
+			case model.DreamStreamEventWarning:
+				glog.Warningf(ctx, "梦境分析流警告: reason=%s message=%s", event.FinishReason, event.Message)
+			case model.DreamStreamEventCompleted:
+				completed = true
+			case model.DreamStreamEventError:
+				msg := strings.TrimSpace(event.Message)
+				if msg == "" {
+					msg = "dream analysis stream failed"
+				}
+				updateAnalysisErrorDetached(ctx, dreamID, sessionID, msg)
+				return nil, gerror.New(msg)
 			}
+		}
+		if !completed {
+			msg := "dream analysis stream closed without completion"
 			updateAnalysisErrorDetached(ctx, dreamID, sessionID, msg)
 			return nil, gerror.New(msg)
 		}
+		analysisText = builder.String()
 	}
-	if !completed {
-		msg := "dream analysis stream closed without completion"
-		updateAnalysisErrorDetached(ctx, dreamID, sessionID, msg)
-		return nil, gerror.New(msg)
-	}
-	analysisText := builder.String()
 	title, interpretation := extractAnalysisTitleAndBody(analysisText)
 	if strings.TrimSpace(interpretation) == "" {
 		msg := "dream analysis completed with empty content"
@@ -667,8 +685,8 @@ func (s *sHistory) findRelatedDreams(
 	}
 
 	candidates := make([]relatedDreamCandidate, 0, len(dreams))
-	for _, dream := range dreams {
-		record := buildDreamRecordWithLatestAnalysis(ctx, dream)
+	records := buildDreamRecordsWithLatestAnalyses(ctx, dreams)
+	for _, record := range records {
 		score := scoreRelatedDream(content, emotion, symbols, *record)
 		if score < relatedDreamMinSimilarity {
 			continue
@@ -961,6 +979,42 @@ func buildDreamRecordWithLatestAnalysis(ctx context.Context, dream dreamRow) *v1
 	return buildDreamRecord(dream, analysis.ResultSummary)
 }
 
+func buildDreamRecordsWithLatestAnalyses(ctx context.Context, dreams []dreamRow) []*v1.DreamRecord {
+	if len(dreams) == 0 {
+		return []*v1.DreamRecord{}
+	}
+
+	dreamIDs := make([]uint64, 0, len(dreams))
+	for _, dream := range dreams {
+		dreamIDs = append(dreamIDs, dream.Id)
+	}
+
+	var analyses []analysisSummaryRow
+	err := g.DB().Model("analysis_sessions").
+		Fields("id, dream_id, result_summary").
+		WhereIn("dream_id", dreamIDs).
+		Where("deleted_at IS NULL AND status = ?", dreamStatusCompleted).
+		Order("dream_id ASC, id DESC").
+		Scan(&analyses)
+	if err != nil {
+		glog.Warningf(ctx, "批量查询梦境解析摘要失败: %v", err)
+	}
+
+	summaryByDreamID := make(map[uint64]string, len(analyses))
+	for _, analysis := range analyses {
+		if _, exists := summaryByDreamID[analysis.DreamId]; exists {
+			continue
+		}
+		summaryByDreamID[analysis.DreamId] = analysis.ResultSummary
+	}
+
+	records := make([]*v1.DreamRecord, 0, len(dreams))
+	for _, dream := range dreams {
+		records = append(records, buildDreamRecord(dream, summaryByDreamID[dream.Id]))
+	}
+	return records
+}
+
 func splitKeywords(tags string) []string {
 	if tags == "" {
 		return []string{}
@@ -1049,14 +1103,17 @@ func filterHistoryEmotionTags(emotion string) []string {
 }
 
 func normalizeLocale(locale string) string {
-	locale = strings.TrimSpace(locale)
-	if locale == "" {
-		return "zh-CN"
+	locale = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(locale, "_", "-")))
+	switch {
+	case locale == "en" || strings.HasPrefix(locale, "en-"):
+		return "en"
+	case locale == "zh" || locale == "zh-hans" || locale == "zh-cn" || locale == "zh-sg" || locale == "zh-my":
+		return "zh-Hans"
+	case locale == "zh-hant" || locale == "zh-tw" || locale == "zh-hk" || locale == "zh-mo":
+		return "zh-Hant"
+	default:
+		return "en"
 	}
-	if matched, _ := regexp.MatchString(`^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$`, locale); !matched {
-		return "zh-CN"
-	}
-	return locale
 }
 
 func updateAnalysisLifecycle(ctx context.Context, dreamID, sessionID uint64, status string, progress int, result string) error {

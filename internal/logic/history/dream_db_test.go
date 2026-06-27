@@ -105,7 +105,7 @@ func TestHistoryLogicDatabaseFlow(t *testing.T) {
 	if analyzeRes.Dream == nil || analyzeRes.Dream.Id == 0 {
 		t.Fatalf("expected persisted dream, got %#v", analyzeRes.Dream)
 	}
-	if analyzeRes.Analysis.Locale != "en-US" || analyzeRes.Dream.Emotion != "peaceful" {
+	if analyzeRes.Analysis.Locale != "en" || analyzeRes.Dream.Emotion != "peaceful" {
 		t.Fatalf("unexpected analysis result: %#v", analyzeRes)
 	}
 	if len(observedEmotionTags) != 1 || observedEmotionTags[0] != "peaceful" {

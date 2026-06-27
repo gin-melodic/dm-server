@@ -80,13 +80,16 @@ func TestDeriveDreamKeywords(t *testing.T) {
 }
 
 func TestNormalizeLocale(t *testing.T) {
-	if got := normalizeLocale(""); got != "zh-CN" {
+	if got := normalizeLocale(""); got != "en" {
 		t.Fatalf("empty locale fallback = %q", got)
 	}
-	if got := normalizeLocale("en-US"); got != "en-US" {
+	if got := normalizeLocale("en-US"); got != "en" {
 		t.Fatalf("valid locale = %q", got)
 	}
-	if got := normalizeLocale("../bad"); got != "zh-CN" {
+	if got := normalizeLocale("zh-TW"); got != "zh-Hant" {
+		t.Fatalf("traditional locale = %q", got)
+	}
+	if got := normalizeLocale("../bad"); got != "en" {
 		t.Fatalf("invalid locale fallback = %q", got)
 	}
 }

@@ -30,6 +30,14 @@ func TestConfiguredProviderModelsReadsModelList(t *testing.T) {
 	}
 }
 
+func TestNormalizeAIServiceListSplitsCommaSeparatedServices(t *testing.T) {
+	got := normalizeAIServiceList([]string{"groq, openrouter", " qwen ", "", "hunyuan,lmstudio"})
+	want := []string{"groq", "openrouter", "qwen", "hunyuan", "lmstudio"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("services = %v, want %v", got, want)
+	}
+}
+
 func TestAnalyzeDreamStreamRetriesBeforeFirstDelta(t *testing.T) {
 	configureSelectorModels(t, []string{"first", "second"})
 	var called []string

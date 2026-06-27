@@ -135,14 +135,16 @@ func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan model.
 			ch <- model.DreamStreamEvent{Type: model.DreamStreamEventError, Message: "Get dream analysis prompt failed", FinishReason: "config_error"}
 			return
 		}
-		fullPrompt := "``` \n# 梦境解析专家系统指令\n\n"
+		responseLocale := resolveDreamResponseLocale(ctx, content)
+		inputLocale := detectDreamInputLocale(content)
+		fullPrompt := fmt.Sprintf("```\n# Dream Analysis Expert System Instructions\n\n%s\n", buildDreamLanguageContract(responseLocale, inputLocale))
 
 		// 5. If there is relevant knowledge, append it to the prompt
 		if knowledgeContent != "" {
-			fullPrompt = fmt.Sprintf("%s## 知识库调用指令：\n这些是通过分析用户梦境，知识库检索弗洛伊德《梦的解析》、荣格《红书解析》、《中国传统解梦》和《现代睡眠神经科学》返回的知识片段（不是所有书籍都有有效返回，返回内容可能不匹配），你可以结合片段进行分析。\n\n%s", fullPrompt, knowledgeContent)
+			fullPrompt = fmt.Sprintf("%s## Retrieved Knowledge Instructions\nThe following passages were retrieved from the knowledge base after analyzing the user's dream. They may be written in Chinese and may be partially mismatched. Use them only as reference material, translate or paraphrase them as needed, and keep the final answer in the target output language.\n\n%s", fullPrompt, knowledgeContent)
 		}
 		if relatedContent := formatRelatedDreamContext(ctx); relatedContent != "" {
-			fullPrompt = fmt.Sprintf("%s## 用户历史关联梦境：\n这些是同一用户过去记录中与当前梦境最相关的梦境。请把它们作为个性化上下文，优先分析反复出现的情绪、场景和意象，不要只做通用符号解释。\n\n%s", fullPrompt, relatedContent)
+			fullPrompt = fmt.Sprintf("%s## Related Dream History\nThe following items are the most relevant past dreams recorded by the same user. Treat them as personalization context and prioritize recurring emotions, scenes, and images over generic symbol explanations. Keep the final answer in the target output language.\n\n%s", fullPrompt, relatedContent)
 		}
 
 		fullPrompt += prompt.String()
@@ -184,6 +186,83 @@ func (s *sDream) StreamDream(ctx context.Context, content string) (<-chan model.
 	}()
 
 	return ch, nil
+}
+
+func resolveDreamResponseLocale(ctx context.Context, content string) string {
+	if locale, ok := ctx.Value(consts.CtxDreamResponseLocale).(string); ok {
+		if normalized := normalizeDreamLocale(locale); normalized != "" {
+			return normalized
+		}
+	}
+	if detected := detectDreamInputLocale(content); detected != "" {
+		return detected
+	}
+	return "en"
+}
+
+func normalizeDreamLocale(locale string) string {
+	locale = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(locale, "_", "-")))
+	switch {
+	case locale == "en" || strings.HasPrefix(locale, "en-"):
+		return "en"
+	case locale == "zh" || locale == "zh-hans" || locale == "zh-cn" || locale == "zh-sg" || locale == "zh-my":
+		return "zh-Hans"
+	case locale == "zh-hant" || locale == "zh-tw" || locale == "zh-hk" || locale == "zh-mo":
+		return "zh-Hant"
+	default:
+		return ""
+	}
+}
+
+func detectDreamInputLocale(content string) string {
+	var latinCount, hanCount, hantHintCount int
+	for _, r := range content {
+		switch {
+		case r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z':
+			latinCount++
+		case r >= '\u4e00' && r <= '\u9fff':
+			hanCount++
+			if strings.ContainsRune("夢門風雲龍馬鳥魚愛聽說話見萬與為來這裡後靈體關開時會", r) {
+				hantHintCount++
+			}
+		}
+	}
+	if hanCount > latinCount {
+		if hantHintCount > 0 {
+			return "zh-Hant"
+		}
+		return "zh-Hans"
+	}
+	if latinCount > 0 {
+		return "en"
+	}
+	return "en"
+}
+
+func dreamLocaleName(locale string) string {
+	switch locale {
+	case "zh-Hans":
+		return "Simplified Chinese"
+	case "zh-Hant":
+		return "Traditional Chinese"
+	default:
+		return "English"
+	}
+}
+
+func buildDreamLanguageContract(responseLocale, inputLocale string) string {
+	return fmt.Sprintf(`## Output Language Contract (Highest Priority)
+Target output locale: %s (%s)
+Detected dream input locale: %s (%s)
+
+The app supports exactly three output languages: English (en), Simplified Chinese (zh-Hans), and Traditional Chinese (zh-Hant).
+You must write the entire final answer in the target output language, including the title, section headings, table headers, bullets, warnings, and advice.
+Retrieved knowledge and related-dream context may be in Chinese; they are reference material only and must not decide the output language.
+If the target output locale is en, do not use Chinese fixed templates such as "梦境元素映射", "多元解析视角", or "现实结合".
+If the target output locale is zh-Hans, use Simplified Chinese characters.
+If the target output locale is zh-Hant, use Traditional Chinese characters.
+For the title: use exactly 4 Chinese characters for zh-Hans or zh-Hant; use a natural 2-6 word English title for en.
+`, responseLocale, dreamLocaleName(responseLocale), inputLocale, dreamLocaleName(inputLocale))
 }
 
 func setDreamStreamMetadata(ctx context.Context, resp *interpretDreamResponse) {
@@ -247,7 +326,7 @@ func formatRelatedDreamContext(ctx context.Context) string {
 			symbols = item.Emotion
 		}
 		builder.WriteString(fmt.Sprintf(
-			"- %s：%s（意象：%s；情绪：%s；相似度：%.0f%%）\n",
+			"- %s: %s (images: %s; emotion: %s; similarity: %.0f%%)\n",
 			item.Date,
 			summary,
 			symbols,
@@ -255,7 +334,7 @@ func formatRelatedDreamContext(ctx context.Context) string {
 			item.Similarity*100,
 		))
 	}
-	builder.WriteString("\n请在解析末尾自然写出 1-2 句不超过 50 字的跨梦境规律发现。")
+	builder.WriteString("\nAt the end of the analysis, add 1-2 natural sentences about recurring cross-dream patterns in the target output language.")
 	return builder.String()
 }
 

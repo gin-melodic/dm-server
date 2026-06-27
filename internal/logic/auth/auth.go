@@ -303,10 +303,11 @@ func (s *sAuth) UpdateUserSettings(ctx context.Context, req *v1.UpdateUserSettin
 		return nil, err
 	}
 	if req.Language != "" {
-		if !isValidLanguageTag(req.Language) {
+		language := normalizeSupportedLanguageTag(req.Language)
+		if language == "" {
 			return nil, gerror.New("invalid language")
 		}
-		settings.Language = req.Language
+		settings.Language = language
 	}
 	if req.PrivacyMode != "" {
 		if !isAllowedUserSetting(req.PrivacyMode, allowedPrivacyModes) {
@@ -535,7 +536,7 @@ func getAuthContextUserID(ctx context.Context) (uint64, error) {
 func defaultUserSettings() *v1.UserSettings {
 	enabled := false
 	return &v1.UserSettings{
-		Language:             "zh-CN",
+		Language:             "en",
 		PrivacyMode:          "private",
 		DreamReminderEnabled: &enabled,
 		DreamReminderTime:    "",
@@ -563,7 +564,9 @@ func loadUserSettings(ctx context.Context, userID uint64) (*v1.UserSettings, err
 		return settings, nil
 	}
 	if row.Language != "" {
-		settings.Language = row.Language
+		if language := normalizeSupportedLanguageTag(row.Language); language != "" {
+			settings.Language = language
+		}
 	}
 	if row.PrivacyMode != "" {
 		settings.PrivacyMode = row.PrivacyMode
@@ -613,6 +616,20 @@ func isValidLanguageTag(value string) bool {
 	}
 	matched, _ := regexp.MatchString(`^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$`, value)
 	return matched
+}
+
+func normalizeSupportedLanguageTag(value string) string {
+	value = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(value, "_", "-")))
+	switch {
+	case value == "en" || strings.HasPrefix(value, "en-"):
+		return "en"
+	case value == "zh" || value == "zh-hans" || value == "zh-cn" || value == "zh-sg" || value == "zh-my":
+		return "zh-Hans"
+	case value == "zh-hant" || value == "zh-tw" || value == "zh-hk" || value == "zh-mo":
+		return "zh-Hant"
+	default:
+		return ""
+	}
 }
 
 func isValidReminderTime(value string) bool {

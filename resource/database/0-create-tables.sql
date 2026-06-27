@@ -136,7 +136,7 @@ COMMENT ON COLUMN analysis_sessions.deleted_at IS 'Deleted at, NULL means not de
 
 CREATE TABLE IF NOT EXISTS user_settings (
     user_id BIGINT NOT NULL,
-    language VARCHAR(16) NOT NULL DEFAULT 'zh-CN',
+    language VARCHAR(16) NOT NULL DEFAULT 'en',
     privacy_mode VARCHAR(32) NOT NULL DEFAULT 'private',
     dream_reminder_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     dream_reminder_time VARCHAR(8) DEFAULT NULL,

@@ -534,7 +534,9 @@ func (m *MockService) GetDream(ctx context.Context, req *v1History.GetDreamReq) 
 	if err != nil {
 		return nil, err
 	}
-	res := v1History.GetDreamRes(*record)
+	res := v1History.GetDreamRes{
+		DreamRecord: *record,
+	}
 	return &res, nil
 }
 

@@ -43,7 +43,11 @@ type GetDreamReq struct {
 	// TODO: Return one dream record by id.
 }
 
-type GetDreamRes = DreamRecord
+type GetDreamRes struct {
+	DreamRecord
+	RelatedDreams []RelatedDream `json:"relatedDreams"`
+	Insight       string         `json:"insight"`
+}
 
 // Update dream by id
 type UpdateDreamReq struct {
@@ -80,10 +84,11 @@ type GetDreamAnalyzeResultRes struct {
 
 // Create dream analysis
 type CreateDreamAnalysisReq struct {
-	g.Meta  `path:"/v1/dream/analyze" method:"post" summary:"Create Dream Analysis" tags:"Dream"`
-	Content string `json:"content" v:"required" dc:"Dream content to analyze"`
-	Emotion string `json:"emotion" dc:"Dream emotion"`
-	Locale  string `json:"locale" dc:"Response locale"`
+	g.Meta       `path:"/v1/dream/analyze" method:"post" summary:"Create Dream Analysis" tags:"Dream"`
+	Content      string `json:"content" v:"required" dc:"Dream content to analyze"`
+	Emotion      string `json:"emotion" dc:"Dream emotion"`
+	Locale       string `json:"locale" dc:"Response locale"`
+	AnalysisText string `json:"analysisText" dc:"Completed analysis text to persist without re-running the model"`
 	// TODO: Analyze dream content and persist the dream plus analysis session.
 }
 

@@ -31,6 +31,7 @@ const (
 	CtxDreamEmotionTags    ContextKey = "dreamEmotionTags"
 	CtxDreamStreamMetadata ContextKey = "dreamStreamMetadata"
 	CtxDreamRelatedContext ContextKey = "dreamRelatedContext"
+	CtxDreamResponseLocale ContextKey = "dreamResponseLocale"
 )
 
 const (

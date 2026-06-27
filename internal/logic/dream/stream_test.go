@@ -126,8 +126,31 @@ func TestStreamDreamUsesInterpretDreamPassagesWhenL1Misses(t *testing.T) {
 	if !strings.Contains(prompt, "知识片段内容") {
 		t.Fatalf("expected prompt to include interpretation passages, got %q", prompt)
 	}
+	if !strings.Contains(prompt, "Target output locale: zh-Hans") {
+		t.Fatalf("expected prompt to include simplified Chinese locale contract, got %q", prompt)
+	}
 	if metadata.InferenceLevel != "L2" || len(metadata.SymbolsDetected) != 1 || metadata.SymbolsDetected[0] != "门" {
 		t.Fatalf("expected miss metadata symbols, got %+v", metadata)
+	}
+}
+
+func TestDreamResponseLocaleNormalizationAndFallback(t *testing.T) {
+	ctx := context.WithValue(context.Background(), consts.CtxDreamResponseLocale, "zh-TW")
+	if got := resolveDreamResponseLocale(ctx, "I walked through a quiet city"); got != "zh-Hant" {
+		t.Fatalf("explicit locale = %q", got)
+	}
+	if got := resolveDreamResponseLocale(context.Background(), "I walked through a quiet city"); got != "en" {
+		t.Fatalf("english input fallback = %q", got)
+	}
+	if got := resolveDreamResponseLocale(context.Background(), ""); got != "en" {
+		t.Fatalf("empty input fallback = %q", got)
+	}
+	if got := normalizeDreamLocale("fr-FR"); got != "" {
+		t.Fatalf("unsupported locale = %q", got)
+	}
+	contract := buildDreamLanguageContract("en", "zh-Hans")
+	if !strings.Contains(contract, "The app supports exactly three output languages") || !strings.Contains(contract, "Target output locale: en") {
+		t.Fatalf("unexpected language contract: %q", contract)
 	}
 }
 

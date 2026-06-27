@@ -131,6 +131,11 @@ func (c *ControllerV1) chatWebSocket(ctx context.Context, req *v1.ChatWebSocketR
 			if emotion := strings.TrimSpace(in.Emotion); emotion != "" {
 				streamCtx = context.WithValue(streamCtx, consts.CtxDreamEmotionTags, []string{emotion})
 			}
+			if locale := strings.TrimSpace(in.Locale); locale != "" {
+				streamCtx = context.WithValue(streamCtx, consts.CtxDreamResponseLocale, locale)
+			} else if lang := strings.TrimSpace(in.Lang); lang != "" {
+				streamCtx = context.WithValue(streamCtx, consts.CtxDreamResponseLocale, lang)
+			}
 
 			// Call Service: begin LLM streaming processing
 			stream, err := service.Dream().StreamDream(streamCtx, in.DreamContent)
